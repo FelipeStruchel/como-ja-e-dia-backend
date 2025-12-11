@@ -292,9 +292,9 @@ export function startDailySchedulers({ log }) {
         { timezone: tz }
     );
 
-    // Checagem de eventos expirados a cada 15 minutos
+    // Checagem de eventos expirados a cada 1 minuto
     cron.schedule(
-        "*/15 * * * *",
+        "* * * * *",
         async () => {
             try {
                 await processExpiredEvents(log);
