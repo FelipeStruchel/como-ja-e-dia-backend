@@ -1,13 +1,13 @@
 import { Worker } from "bullmq";
 
 const queueName = process.env.INCOMING_QUEUE_NAME || "incoming-messages";
-const redisUrl = process.env.REDIS_URL || "redis://redis:6379";
-const redisHost = process.env.REDIS_HOST;
-const redisPort = process.env.REDIS_PORT;
-const connection =
-    redisHost && redisPort
-        ? { host: redisHost, port: parseInt(redisPort, 10) }
-        : { url: redisUrl };
+const redisUrl = process.env.REDIS_URL;
+const redisHost = process.env.REDIS_HOST || "redis";
+const redisPort = process.env.REDIS_PORT || "6379";
+
+const connection = redisUrl
+    ? { url: redisUrl }
+    : { host: redisHost, port: parseInt(redisPort, 10) };
 
 export function startIncomingConsumer(processor) {
     const worker = new Worker(

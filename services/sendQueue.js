@@ -1,11 +1,13 @@
 import { Queue } from "bullmq";
 
 const queueName = process.env.SEND_QUEUE_NAME || "send-messages";
-const redisUrl = process.env.REDIS_URL || "redis://redis:6379";
-const redisHost = process.env.REDIS_HOST;
-const redisPort = process.env.REDIS_PORT;
+const redisUrl = process.env.REDIS_URL;
+const redisHost = process.env.REDIS_HOST || "redis";
+const redisPort = process.env.REDIS_PORT || "6379";
 
-const connection = redisHost && redisPort ? { host: redisHost, port: parseInt(redisPort, 10) } : { url: redisUrl };
+const connection = redisUrl
+    ? { url: redisUrl }
+    : { host: redisHost, port: parseInt(redisPort, 10) };
 const queue = new Queue(queueName, { connection });
 
 export async function enqueueSendMessage(payload, opts = {}) {
