@@ -1,21 +1,27 @@
-import { existsSync, createReadStream } from "fs";
+import { existsSync, createReadStream, mkdirSync } from "fs";
 import { promises as fsPromises } from "fs";
 import { join, basename } from "path";
 import multer from "multer";
 
+function resolveBaseFolder(scope = "media") {
+    return scope === "trigger" ? "media_triggers" : "media";
+}
+
 export function createUploadMiddleware() {
     const storage = multer.diskStorage({
-        destination: function (req, file, cb) {
-            cb(null, "temp/");
+        destination: function (_req, _file, cb) {
+            const tempDir = join(process.cwd(), "temp");
+            mkdirSync(tempDir, { recursive: true });
+            cb(null, tempDir);
         },
-        filename: function (req, file, cb) {
+        filename: function (_req, file, cb) {
             const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
             const ext = file.originalname.split(".").pop();
             cb(null, file.fieldname + "-" + uniqueSuffix + "." + ext);
         },
     });
 
-    const fileFilter = (req, file, cb) => {
+    const fileFilter = (_req, file, cb) => {
         const allowedImageTypes = ["image/jpeg", "image/png", "image/gif"];
         const allowedVideoTypes = [
             "video/mp4",
@@ -58,31 +64,28 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
 
     app.post("/media", upload.single("file"), async (req, res) => {
         try {
-            console.log("Recebendo upload de mídia:", {
-                file: req.file,
-                body: req.body,
-                headers: req.headers,
-            });
+            const scope = (req.body.scope || req.query.scope || "media").toString();
 
             if (!req.file) {
-                console.log("Nenhum arquivo enviado");
                 return res.status(400).json({ error: "Nenhum arquivo enviado" });
             }
 
             const type = req.body.type || MEDIA_TYPES.TEXT;
             if (!Object.values(MEDIA_TYPES).includes(type)) {
-                console.log("Tipo de mídia inválido:", type);
                 return res.status(400).json({ error: "Tipo de mídia inválido" });
             }
 
-            console.log("Salvando mídia do tipo:", type);
-            const media = await saveMedia(req.file, type);
-            console.log("Mídia salva com sucesso:", media);
+            const baseFolder = resolveBaseFolder(scope);
+            const media = await saveMedia(req.file, type, baseFolder);
+            const filename = basename(media.path);
+            const url = `/media/${media.type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
 
             res.setHeader("Content-Type", "application/json");
-            res.status(201).json({ message: "Mídia salva com sucesso", media });
+            res.status(201).json({
+                message: "Mídia salva com sucesso",
+                media: { ...media, url },
+            });
         } catch (error) {
-            console.error("Erro ao salvar mídia:", error);
             res.setHeader("Content-Type", "application/json");
             res.status(500).json({ error: error.message });
         }
@@ -90,13 +93,12 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
 
     app.get("/media/:type/:filename", (req, res) => {
         const { type, filename } = req.params;
+        const scope = (req.query.scope || "media").toString();
+        const baseFolder = resolveBaseFolder(scope);
         const pluralType = type.endsWith("s") ? type : `${type}s`;
-        const filePath = join(process.cwd(), "media", pluralType, filename);
-
-        console.log("Tentando servir arquivo:", filePath);
+        const filePath = join(process.cwd(), baseFolder, pluralType, filename);
 
         if (!existsSync(filePath)) {
-            console.error(`Arquivo não encontrado: ${filePath}`);
             return res.status(404).json({ error: "Arquivo não encontrado" });
         }
 
@@ -106,7 +108,6 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
         const fileStream = createReadStream(filePath);
 
         fileStream.on("error", (error) => {
-            console.error(`Erro ao ler arquivo ${filePath}:`, error);
             if (!res.headersSent) {
                 res.status(500).json({ error: "Erro ao ler arquivo" });
             }
@@ -121,28 +122,29 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
 
     app.get("/media", async (req, res) => {
         try {
-            console.log("Buscando mídias...");
             const type = req.query.type;
+            const scope = (req.query.scope || "media").toString();
+            const baseFolder = resolveBaseFolder(scope);
             if (type && !Object.values(MEDIA_TYPES).includes(type)) {
                 return res.status(400).json({ error: "Tipo de mídia inválido" });
             }
 
-            let media = await listAllMedia();
+            let media = await listAllMedia(baseFolder);
 
             if (type) {
                 media = media.filter((item) => item.type === type);
             } else {
                 media = media.filter((item) => item.type !== MEDIA_TYPES.TEXT);
             }
-            console.log("Mídias encontradas:", media);
+
             const mediaWithUrls = media.map((item) => ({
                 ...item,
-                url: `/media/${item.type}/${basename(item.path)}`,
+                url: `/media/${item.type}/${basename(item.path)}${
+                    scope === "trigger" ? "?scope=trigger" : ""
+                }`,
             }));
-            console.log("Mídias com URLs:", mediaWithUrls);
             res.json(mediaWithUrls);
         } catch (error) {
-            console.error("Erro ao listar mídias:", error);
             res.status(500).json({ error: error.message });
         }
     });
@@ -150,22 +152,18 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
     app.delete("/media/:type/:filename", async (req, res) => {
         try {
             const { type, filename } = req.params;
+            const scope = (req.query.scope || "media").toString();
+            const baseFolder = resolveBaseFolder(scope);
             const pluralType = type.endsWith("s") ? type : `${type}s`;
-            const filePath = join(process.cwd(), "media", pluralType, filename);
-
-            console.log("Tentando deletar arquivo:", filePath);
+            const filePath = join(process.cwd(), baseFolder, pluralType, filename);
 
             if (!existsSync(filePath)) {
-                console.error(`Arquivo não encontrado: ${filePath}`);
                 return res.status(404).json({ error: "Arquivo não encontrado" });
             }
 
             await fsPromises.unlink(filePath);
-            console.log(`Arquivo removido: ${filePath}`);
-
             res.json({ message: "Mídia removida com sucesso" });
         } catch (error) {
-            console.error("Erro ao remover mídia:", error);
             res.status(500).json({ error: error.message });
         }
     });
