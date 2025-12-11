@@ -176,12 +176,7 @@ export function createCommandProcessor({
         let analysis = null;
         const start = Date.now();
         try {
-            for (const m of toAnalyze) {
-                const sender = m.senderName || m.author || m.from || "desconhecido";
-                const txt = String(m.body || "").replace(/\s+/g, " ").trim().slice(0, 160);
-                log(`Mensagem para análise: [${sender}] ${txt || "<vazia>"}`, "info");
-            }
-            analysis = await generateAIAnalysis(toAnalyze);
+        analysis = await generateAIAnalysis(toAnalyze);
             if (isDbConnected && isDbConnected()) {
                 try {
                     await AnalysisLog.create({
