@@ -1,12 +1,9 @@
 import moment from "moment-timezone";
 import cron from "node-cron";
 import { existsSync, readdirSync } from "fs";
-import { join, dirname, fileURLToPath } from "path";
-import {
-    MEDIA_TYPES,
-    getRandomMedia,
-    removeMedia,
-} from "../mediaManager.js";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { MEDIA_TYPES, getRandomMedia, removeMedia } from "../mediaManager.js";
 import { generateAICaption } from "./ai.js";
 import { Event } from "../models/event.js";
 import { enqueueSendMessage } from "./sendQueue.js";
