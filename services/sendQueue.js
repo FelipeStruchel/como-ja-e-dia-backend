@@ -1,9 +1,11 @@
 import { Queue } from "bullmq";
 
 const queueName = process.env.SEND_QUEUE_NAME || "send-messages";
-const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+const redisUrl = process.env.REDIS_URL || "redis://redis:6379";
+const redisHost = process.env.REDIS_HOST;
+const redisPort = process.env.REDIS_PORT;
 
-const connection = { url: redisUrl };
+const connection = redisHost && redisPort ? { host: redisHost, port: parseInt(redisPort, 10) } : { url: redisUrl };
 const queue = new Queue(queueName, { connection });
 
 export async function enqueueSendMessage(payload, opts = {}) {
@@ -27,7 +29,7 @@ export async function enqueueSendMessage(payload, opts = {}) {
         delay: opts.delay,
         jobId: opts.idempotencyKey,
     };
-    return queue.add("send", payload, jobOpts);
+    return queue.add("send", normalized, jobOpts);
 }
 
 export function getSendQueue() {
