@@ -1,0 +1,24 @@
+version: '3.8'
+services:
+  whatsapp-bot:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
+      - PUPPETEER_HEADLESS=true
+      - TZ=America/Sao_Paulo
+    volumes:
+      - ./.wwebjs_auth:/app/.wwebjs_auth
+      - ./chrome-data:/app/chrome-data
+      - ./daily_vid:/app/daily_vid:ro
+      - ./media:/app/media
+    tmpfs:
+      - /dev/shm:size=1g
