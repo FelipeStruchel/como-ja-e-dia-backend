@@ -27,6 +27,7 @@ export async function registerUser({ email, password, name }) {
         email: normalized,
         name: name || "",
         passwordHash,
+        status: "pending",
     });
 
     return user;
@@ -39,6 +40,13 @@ export async function authenticateUser({ email, password }) {
 
     const ok = await bcrypt.compare(password || "", user.passwordHash);
     if (!ok) throw new Error("Credenciais inválidas");
+
+    if (user.status === "pending") {
+        throw new Error("Cadastro pendente de aprovação");
+    }
+    if (user.status === "blocked") {
+        throw new Error("Usuário bloqueado");
+    }
 
     const token = jwt.sign(
         { sub: user._id.toString(), email: user.email },
@@ -55,4 +63,14 @@ export function verifyToken(token) {
 
 export async function getUserById(id) {
     return User.findById(id).lean();
+}
+
+export async function listUsers({ status }) {
+    const query = {};
+    if (status) query.status = status;
+    return User.find(query).sort({ createdAt: -1 }).lean();
+}
+
+export async function setUserStatus(id, status) {
+    return User.findByIdAndUpdate(id, { status }, { new: true }).lean();
 }

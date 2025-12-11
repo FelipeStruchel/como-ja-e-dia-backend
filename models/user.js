@@ -5,6 +5,11 @@ const userSchema = new Schema({
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     name: { type: String, default: "" },
     passwordHash: { type: String, required: true },
+    status: {
+        type: String,
+        enum: ["pending", "approved", "blocked"],
+        default: "pending",
+    },
     createdAt: { type: Date, default: Date.now },
 });
 
