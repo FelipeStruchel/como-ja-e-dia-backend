@@ -15,4 +15,5 @@ services:
 
 networks:
   bot-net:
+    name: bot-net
     external: true
