@@ -127,7 +127,13 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
                 return res.status(400).json({ error: "Tipo de mídia inválido" });
             }
 
-            const media = await listAllMedia();
+            let media = await listAllMedia();
+
+            if (type) {
+                media = media.filter((item) => item.type === type);
+            } else {
+                media = media.filter((item) => item.type !== MEDIA_TYPES.TEXT);
+            }
             console.log("Mídias encontradas:", media);
             const mediaWithUrls = media.map((item) => ({
                 ...item,

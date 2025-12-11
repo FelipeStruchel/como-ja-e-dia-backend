@@ -16,6 +16,7 @@ import { connectDb } from "./services/db.js";
 import { enqueueSendMessage } from "./services/sendQueue.js";
 import { Event } from "./models/event.js";
 import { AnalysisLog } from "./models/analysisLog.js";
+import { Phrase } from "./models/phrase.js";
 import { log } from "./services/logger.js";
 import { generateAIAnalysis } from "./services/ai.js";
 import { MEDIA_TYPES, saveMedia, listAllMedia } from "./mediaManager.js";
@@ -49,7 +50,7 @@ registerEventRoutes(app, {
     moment,
 });
 registerAuthRoutes(app);
-registerPhraseRoutes(app, { rootDir: __dirname, MAX_MESSAGE_LENGTH: 4096 });
+registerPhraseRoutes(app, { MAX_MESSAGE_LENGTH: 4096, Phrase });
 registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia });
 registerConfessionRoutes(app, {
     MAX_TEXT_LENGTH: parseInt(process.env.MAX_TEXT_LENGTH || "1000", 10),

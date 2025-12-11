@@ -1,91 +1,49 @@
-import { promises as fsPromises } from "fs";
-import { join } from "path";
-
-async function lerFrases(rootDir) {
-    try {
-        const textsDir = join(rootDir, "media", "texts");
-        const files = await fsPromises.readdir(textsDir);
-
-        const frases = await Promise.all(
-            files.map(async (file) => {
-                const filePath = join(textsDir, file);
-                const content = await fsPromises.readFile(filePath, "utf8");
-                return content;
-            })
-        );
-
-        return { frases };
-    } catch (error) {
-        console.error("Erro ao ler frases:", error);
-        return { frases: [] };
-    }
-}
-
-export function registerPhraseRoutes(app, { rootDir, MAX_MESSAGE_LENGTH }) {
-    // Rota para obter todas as frases
+export function registerPhraseRoutes(app, { MAX_MESSAGE_LENGTH, Phrase }) {
+    // Lista todas as frases (ordenadas pela criação) e retorna apenas o texto para manter compatibilidade
     app.get("/frases", async (req, res) => {
         try {
-            console.log("Buscando frases...");
-            const data = await lerFrases(rootDir);
-            console.log("Frases encontradas:", data.frases);
-            res.json(data.frases);
+            const docs = await Phrase.find().sort({ createdAt: 1 }).lean();
+            const frases = docs.map((d) => d.text);
+            res.json(frases);
         } catch (error) {
+            // eslint-disable-next-line no-console
             console.error("Erro ao buscar frases:", error);
             res.status(500).json({ error: "Erro ao buscar frases" });
         }
     });
 
-    // Rota para adicionar uma nova frase
+    // Adiciona nova frase
     app.post("/frases", async (req, res) => {
         try {
-            console.log("Recebendo nova frase:", req.body);
-            const { frase } = req.body;
+            const { frase } = req.body || {};
             if (!frase) {
-                console.log("Frase não fornecida");
                 return res.status(400).json({ error: "Frase é obrigatória" });
             }
-
             if (frase.length > MAX_MESSAGE_LENGTH) {
-                console.log("Frase excede o tamanho máximo");
                 return res.status(400).json({
                     error: `A frase deve ter no máximo ${MAX_MESSAGE_LENGTH} caracteres`,
                     maxLength: MAX_MESSAGE_LENGTH,
                 });
             }
-
-            const fileName = `frase_${Date.now()}.txt`;
-            const filePath = join(rootDir, "media", "texts", fileName);
-            await fsPromises.writeFile(filePath, frase);
-
-            console.log("Frase adicionada com sucesso:", frase);
-            res.status(201).json({
-                message: "Frase adicionada com sucesso",
-                frase,
-            });
+            const doc = await Phrase.create({ text: frase });
+            res.status(201).json({ message: "Frase adicionada com sucesso", frase: doc.text });
         } catch (error) {
+            // eslint-disable-next-line no-console
             console.error("Erro ao adicionar frase:", error);
             res.status(500).json({ error: "Erro ao adicionar frase" });
         }
     });
 
-    // Rota para remover uma frase
+    // Remove frase por índice (compatível com UI atual)
     app.delete("/frases/:index", async (req, res) => {
         try {
-            const index = parseInt(req.params.index);
-            const { frases } = await lerFrases(rootDir);
-
-            if (index < 0 || index >= frases.length) {
+            const index = parseInt(req.params.index, 10);
+            const docs = await Phrase.find().sort({ createdAt: 1 }).lean();
+            if (Number.isNaN(index) || index < 0 || index >= docs.length) {
                 return res.status(404).json({ error: "Frase não encontrada" });
             }
-
-            const textsDir = join(rootDir, "media", "texts");
-            const files = await fsPromises.readdir(textsDir);
-            const fileToDelete = files[index];
-
-            if (fileToDelete) {
-                await fsPromises.unlink(join(textsDir, fileToDelete));
-            }
-
+            const target = docs[index];
+            await Phrase.deleteOne({ _id: target._id });
             res.json({ message: "Frase removida com sucesso" });
         } catch (error) {
             res.status(500).json({ error: "Erro ao remover frase" });
