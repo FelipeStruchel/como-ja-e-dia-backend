@@ -137,13 +137,23 @@ export function createTriggerProcessor({ log, isDbConnected }) {
                     if ((now - lastU) / 1000 < trig.cooldownPerUserSeconds) continue;
                 }
 
+                let mediaUrl = trig.responseMediaUrl || "";
+                if (
+                    mediaUrl &&
+                    !mediaUrl.startsWith("http") &&
+                    process.env.BACKEND_PUBLIC_URL
+                ) {
+                    const base = process.env.BACKEND_PUBLIC_URL.replace(/\/+$/, "");
+                    mediaUrl = `${base}/${mediaUrl.replace(/^\/+/, "")}`;
+                }
+
                 const payload = {
                     groupId: msg.from,
                     type: trig.responseType,
                     content:
                         trig.responseType === "text"
                             ? trig.responseText || "(sem texto configurado)"
-                            : trig.responseMediaUrl,
+                            : mediaUrl || trig.responseMediaUrl,
                     caption: trig.responseType === "text" ? undefined : trig.responseText,
                     replyTo: trig.replyMode === "reply" ? msg.id : undefined,
                     mentions: trig.mentionSender && msg.author ? [msg.author] : [],

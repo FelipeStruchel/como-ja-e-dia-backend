@@ -7,6 +7,12 @@ function resolveBaseFolder(scope = "media") {
     return scope === "trigger" ? "media_triggers" : "media";
 }
 
+function buildUrl(type, filename, scope) {
+    const base = (process.env.BACKEND_PUBLIC_URL || "").replace(/\/+$/, "");
+    const rel = `/media/${type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
+    return base ? `${base}${rel}` : rel;
+}
+
 export function createUploadMiddleware() {
     const storage = multer.diskStorage({
         destination: function (_req, _file, cb) {
@@ -78,7 +84,7 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
             const baseFolder = resolveBaseFolder(scope);
             const media = await saveMedia(req.file, type, baseFolder);
             const filename = basename(media.path);
-            const url = `/media/${media.type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
+            const url = buildUrl(media.type, filename, scope);
 
             res.setHeader("Content-Type", "application/json");
             res.status(201).json({
@@ -107,7 +113,7 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
 
         const fileStream = createReadStream(filePath);
 
-        fileStream.on("error", (error) => {
+        fileStream.on("error", () => {
             if (!res.headersSent) {
                 res.status(500).json({ error: "Erro ao ler arquivo" });
             }
@@ -139,9 +145,7 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
 
             const mediaWithUrls = media.map((item) => ({
                 ...item,
-                url: `/media/${item.type}/${basename(item.path)}${
-                    scope === "trigger" ? "?scope=trigger" : ""
-                }`,
+                url: buildUrl(item.type, basename(item.path), scope),
             }));
             res.json(mediaWithUrls);
         } catch (error) {

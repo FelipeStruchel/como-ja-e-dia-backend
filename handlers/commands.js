@@ -230,13 +230,7 @@ export function createCommandProcessor({
     return async function processCommand(msg) {
         try {
             if (!msg || !msg.body) return;
-            if (!isFromAllowedGroup(msg)) {
-                log(
-                    `Mensagem recebida de grupo não autorizado (${msg.from}). Ignorando.`,
-                    "info"
-                );
-                return;
-            }
+            if (!isFromAllowedGroup(msg)) return;
 
             const text = msg.body.trim();
             const cmd = parseCommand(text);
