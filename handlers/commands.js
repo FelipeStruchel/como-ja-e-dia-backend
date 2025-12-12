@@ -77,9 +77,22 @@ export function createCommandProcessor({
             });
             return true;
         }
-        const participants = msg.participants || [];
+        const rawParticipants = msg.participants || [];
+        const mentionIds = Array.from(
+            new Set(
+                (rawParticipants || [])
+                    .map((p) => {
+                        if (typeof p === "string") return p;
+                        if (p?._serialized) return p._serialized;
+                        if (p?.id?._serialized) return p.id._serialized;
+                        if (p?.id) return p.id;
+                        return null;
+                    })
+                    .filter(Boolean)
+            )
+        );
         const maxMentions = 256;
-        if (participants.length === 0) {
+        if (mentionIds.length === 0) {
             await enqueueSendMessage({
                 groupId: msg.from,
                 type: "text",
@@ -88,11 +101,11 @@ export function createCommandProcessor({
             });
             return true;
         }
-        if (participants.length > maxMentions) {
+        if (mentionIds.length > maxMentions) {
             await enqueueSendMessage({
                 groupId: msg.from,
                 type: "text",
-                content: `Esse grupo é gigante (${participants.length} membros). Não vou pingar todo mundo.`,
+                content: `Esse grupo é gigante (${mentionIds.length} membros). Não vou pingar todo mundo.`,
                 replyTo: msg.id,
             });
             return true;
@@ -101,7 +114,7 @@ export function createCommandProcessor({
             groupId: msg.from,
             type: "text",
             content: "@everyone",
-            mentions: participants,
+            mentions: mentionIds,
         });
         lastAllTimestamp = nowTs;
         return true;
@@ -176,7 +189,7 @@ export function createCommandProcessor({
         let analysis = null;
         const start = Date.now();
         try {
-        analysis = await generateAIAnalysis(toAnalyze);
+            analysis = await generateAIAnalysis(toAnalyze);
             if (isDbConnected && isDbConnected()) {
                 try {
                     await AnalysisLog.create({
