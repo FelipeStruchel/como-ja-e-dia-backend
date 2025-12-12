@@ -29,6 +29,7 @@ const triggerSchema = new Schema(
         cooldownSeconds: { type: Number, default: 0 },
         cooldownPerUserSeconds: { type: Number, default: 0 },
         active: { type: Boolean, default: true },
+        allowedUsers: { type: [String], default: [] },
     },
     { timestamps: true }
 );

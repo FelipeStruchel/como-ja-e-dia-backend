@@ -111,10 +111,14 @@ export function createTriggerProcessor({ log, isDbConnected }) {
             if (!triggers.length) return;
 
             const now = Date.now();
+            const senderId = msg.author || msg.from || "";
             for (const trig of triggers) {
                 if (!trig.active) continue;
                 if (trig.expiresAt && new Date(trig.expiresAt).getTime() <= now) continue;
                 if (trig.maxUses && trig.triggeredCount >= trig.maxUses) continue;
+                if (Array.isArray(trig.allowedUsers) && trig.allowedUsers.length) {
+                    if (!senderId || !trig.allowedUsers.includes(senderId)) continue;
+                }
 
                 const matcher = buildMatcher(trig);
                 if (!matcher(msg.body || "")) continue;

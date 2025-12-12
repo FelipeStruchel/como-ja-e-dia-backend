@@ -40,6 +40,11 @@ function parseTriggerPayload(body) {
         Number.parseInt(body.cooldownPerUserSeconds || 0, 10)
     );
     safe.active = body.active !== undefined ? !!body.active : true;
+    safe.allowedUsers = Array.isArray(body.allowedUsers)
+        ? body.allowedUsers
+              .map((u) => (u || "").toString().trim())
+              .filter(Boolean)
+        : [];
     return safe;
 }
 
