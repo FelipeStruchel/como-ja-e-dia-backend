@@ -59,6 +59,12 @@ function validateTriggerPayload(payload) {
     if (payload.expiresAt && isNaN(payload.expiresAt.getTime())) {
         throw new Error("Data de expiração inválida");
     }
+    if (payload.expiresAt) {
+        const now = new Date();
+        if (payload.expiresAt.getTime() <= now.getTime()) {
+            throw new Error("A data de expiração deve ser no futuro");
+        }
+    }
     if (payload.maxUses !== null && payload.maxUses < 0) {
         throw new Error("maxUses deve ser >= 0");
     }
