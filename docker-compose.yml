@@ -12,10 +12,17 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+    volumes:
+      - backend-media:/app/media
+      - backend-media-triggers:/app/media_triggers
     networks:
       - bot-net
 
 networks:
   bot-net:
     name: bot-net
+
+volumes:
+  backend-media:
+  backend-media-triggers:
     external: true
