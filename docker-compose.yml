@@ -21,8 +21,8 @@ services:
 networks:
   bot-net:
     name: bot-net
+    external: true
 
 volumes:
   backend-media:
   backend-media-triggers:
-    external: true
