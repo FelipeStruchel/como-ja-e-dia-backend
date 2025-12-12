@@ -1,15 +1,18 @@
 import { Queue } from "bullmq";
 
 const queueName = process.env.GROUP_CONTEXT_QUEUE_NAME || "group-context";
-const redisUrl = process.env.REDIS_URL || "redis://redis:6379";
+const redisUrl = process.env.REDIS_URL;
 const redisHost = process.env.REDIS_HOST || "redis";
-const redisPort = process.env.REDIS_PORT || "6379";
+const redisPort = parseInt(process.env.REDIS_PORT || "6379", 10);
 
-const baseConnection = redisUrl
-    ? { url: redisUrl }
-    : { host: redisHost, port: parseInt(redisPort, 10) };
+// Prioriza host/port, alinhado com outras filas (send/incoming)
+const hasHostPort = !!process.env.REDIS_HOST || !!process.env.REDIS_PORT;
+const baseConnection = hasHostPort
+    ? { host: redisHost, port: redisPort }
+    : redisUrl
+      ? { url: redisUrl }
+      : { host: "redis", port: 6379 };
 
-// Evita requests ficarem pendurados se o Redis estiver fora do ar
 const connection = {
     ...baseConnection,
     maxRetriesPerRequest: 1,
