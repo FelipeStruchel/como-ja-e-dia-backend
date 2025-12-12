@@ -5,19 +5,33 @@ const redisUrl = process.env.REDIS_URL || "redis://redis:6379";
 const redisHost = process.env.REDIS_HOST || "redis";
 const redisPort = process.env.REDIS_PORT || "6379";
 
-const connection = redisUrl
+const baseConnection = redisUrl
     ? { url: redisUrl }
     : { host: redisHost, port: parseInt(redisPort, 10) };
+
+// Evita requests ficarem pendurados se o Redis estiver fora do ar
+const connection = {
+    ...baseConnection,
+    maxRetriesPerRequest: 1,
+    connectTimeout: 5000,
+};
 
 const queue = new Queue(queueName, { connection });
 
 export async function enqueueGroupContextJob(groupId) {
     if (!groupId) throw new Error("groupId eh obrigatorio");
-    return queue.add(
+    const jobPromise = queue.add(
         "group-context",
         { groupId },
         { removeOnComplete: true, removeOnFail: 50 }
     );
+
+    // Timeout defensivo para evitar request travando se Redis estiver indisponivel
+    const timeoutMs = 5000;
+    const timeout = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error("Timeout ao enfileirar contexto (Redis indisponivel?)")), timeoutMs)
+    );
+    return Promise.race([jobPromise, timeout]);
 }
 
 export function getGroupContextQueueName() {
