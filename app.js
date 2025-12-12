@@ -24,6 +24,7 @@ import { startIncomingConsumer } from "./services/incomingQueue.js";
 import { createIncomingProcessor } from "./handlers/incoming.js";
 import { startDailySchedulers } from "./services/scheduler.js";
 import { mediaStaticMiddleware } from "./services/staticMedia.js";
+import { registerGroupContextRoutes } from "./routes/groupContext.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,6 +67,7 @@ registerHealthRoute(app);
 registerTriggerRoutes(app);
 registerLogRoutes(app);
 registerLogIngestRoute(app);
+registerGroupContextRoutes(app);
 
 app.get("/db-status", (req, res) => {
     res.json({ connected: isDbConnected() });

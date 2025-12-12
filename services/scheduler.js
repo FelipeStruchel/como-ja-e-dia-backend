@@ -12,6 +12,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const MAX_MESSAGE_LENGTH = 4096;
+const backendBaseUrl = (process.env.BACKEND_PUBLIC_URL || "http://backend:3000").replace(
+    /\/+$/,
+    ""
+);
+
+function buildPublicMediaUrl(pathLike) {
+    if (!pathLike) return null;
+    if (/^https?:\/\//i.test(pathLike)) return pathLike;
+    const normalized = pathLike.replace(/\\/g, "/");
+    if (normalized.startsWith("/")) return `${backendBaseUrl}${normalized}`;
+    if (normalized.startsWith("daily_vid/") || normalized.includes("/daily_vid/")) {
+        const file = normalized.split("/daily_vid/").pop();
+        return `${backendBaseUrl}/daily_vid/${file}`;
+    }
+    if (normalized.startsWith("media_triggers/") || normalized.includes("/media_triggers/")) {
+        const file = normalized.split("/media_triggers/").pop();
+        return `${backendBaseUrl}/media_triggers/${file}`;
+    }
+    if (normalized.startsWith("media/") || normalized.includes("/media/")) {
+        const file = normalized.split("/media/").pop();
+        return `${backendBaseUrl}/media/${file}`;
+    }
+    // Fallback: treat as media file relative to /media
+    return `${backendBaseUrl}/media/${normalized.replace(/^\/+/, "")}`;
+}
 
 function getLocalDailyVideo(log) {
     try {
@@ -22,24 +47,26 @@ function getLocalDailyVideo(log) {
 
         if (currentHour >= 6 && currentHour < 18) {
             const p = join(dailyDir, videos.manha);
-            log?.(`Selecionando vídeo da manhã: ${videos.manha}`, "info");
-            if (existsSync(p)) return p;
+            log?.(`Selecionando video da manha: ${videos.manha}`, "info");
+            if (existsSync(p))
+                return { localPath: p, publicPath: `/daily_vid/${videos.manha}` };
         }
 
         const p2 = join(dailyDir, videos.noite);
-        log?.(`Selecionando vídeo da noite: ${videos.noite}`, "info");
-        if (existsSync(p2)) return p2;
+        log?.(`Selecionando video da noite: ${videos.noite}`, "info");
+        if (existsSync(p2)) return { localPath: p2, publicPath: `/daily_vid/${videos.noite}` };
 
         if (existsSync(dailyDir)) {
             const files = readdirSync(dailyDir).filter((f) =>
                 f.toLowerCase().endsWith(".mp4")
             );
-            if (files.length > 0) return join(dailyDir, files[0]);
+            if (files.length > 0)
+                return { localPath: join(dailyDir, files[0]), publicPath: `/daily_vid/${files[0]}` };
         }
 
         return null;
     } catch (error) {
-        log?.(`Erro ao obter vídeo local: ${error.message}`, "error");
+        log?.(`Erro ao obter video local: ${error.message}`, "error");
         return null;
     }
 }
@@ -84,7 +111,7 @@ async function buildCaption(log) {
                 else if (parts.length === 2) human = parts.join(" e ");
                 else human = parts.slice(0, -1).join(", ") + " e " + parts.slice(-1);
 
-                defaultMessage = `Faltam ${human} para ${names} e eu ainda não consigo acreditar que hoje já é dia ${moment().format(
+                defaultMessage = `Faltam ${human} para ${names} e eu ainda nao consigo acreditar que hoje ja e dia ${moment().format(
                     "DD"
                 )}!`;
             }
@@ -116,7 +143,7 @@ async function buildCaption(log) {
             };
             const nearestDateStr = moment
                 .tz(nearestDate, "America/Sao_Paulo")
-                .format("DD/MM/YYYY [às] HH:mm");
+                .format("DD/MM/YYYY [as] HH:mm");
             ai = await generateAICaption({
                 purpose: "greeting",
                 names,
@@ -147,9 +174,9 @@ async function buildCaption(log) {
 }
 
 async function sendDaily(log) {
-    const videoPath = getLocalDailyVideo(log);
-    if (!videoPath) {
-        log?.("Nenhum vídeo encontrado para enviar", "warning");
+    const videoObj = getLocalDailyVideo(log);
+    if (!videoObj) {
+        log?.("Nenhum video encontrado para enviar", "warning");
         return;
     }
 
@@ -159,11 +186,12 @@ async function sendDaily(log) {
         "120363339314665620@g.us";
 
     const caption = await buildCaption(log);
+    const videoUrl = buildPublicMediaUrl(videoObj.publicPath || videoObj.localPath);
 
     await enqueueSendMessage({
         groupId,
         type: "video",
-        content: videoPath,
+        content: videoUrl,
         caption,
     });
 
@@ -174,7 +202,7 @@ async function sendDaily(log) {
                 ? "mensagem"
                 : randomMedia.type === MEDIA_TYPES.IMAGE
                 ? "foto"
-                : "vídeo";
+                : "video";
         const intro = `${mediaType.charAt(0).toUpperCase() + mediaType.slice(1)} do dia:`;
         await enqueueSendMessage({
             groupId,
@@ -182,6 +210,7 @@ async function sendDaily(log) {
             content: intro,
         });
 
+        const mediaUrl = buildPublicMediaUrl(randomMedia.path);
         if (randomMedia.type === MEDIA_TYPES.TEXT) {
             await enqueueSendMessage({
                 groupId,
@@ -192,7 +221,7 @@ async function sendDaily(log) {
             await enqueueSendMessage({
                 groupId,
                 type: randomMedia.type,
-                content: randomMedia.path,
+                content: mediaUrl,
             });
         }
         await removeMedia(randomMedia.path);
@@ -220,8 +249,8 @@ async function processExpiredEvents(log) {
             const names = groupEvents.map((e) => e.name).join(" e ");
             const timeStr = moment
                 .tz(new Date(groupEvents[0].date), "America/Sao_Paulo")
-                .format("DD/MM/YYYY [às] HH:mm");
-            let message = `É hora do evento ${names}! (${timeStr})`;
+                .format("DD/MM/YYYY [as] HH:mm");
+            let message = `E hora do evento ${names}! (${timeStr})`;
             try {
                 const weekday2 = moment.tz("America/Sao_Paulo").format("dddd");
                 const todayStr2 = moment.tz("America/Sao_Paulo").format("DD/MM/YYYY");
@@ -266,15 +295,15 @@ async function processExpiredEvents(log) {
 export function startDailySchedulers({ log }) {
     const tz = process.env.TZ || "America/Sao_Paulo";
 
-    // Envio diário: Bom dia (06:00) e Boa noite (22:00)
+    // Envio diario: Bom dia (06:00) e Boa noite (22:00)
     cron.schedule(
         "0 6 * * *",
         async () => {
             try {
-                log?.("Execução agendada: envio diário (bom dia)", "info");
+                log?.("Execucao agendada: envio diario (bom dia)", "info");
                 await sendDaily(log);
             } catch (err) {
-                log?.(`Erro ao enviar rotina diária: ${err.message}`, "error");
+                log?.(`Erro ao enviar rotina diaria: ${err.message}`, "error");
             }
         },
         { timezone: tz }
@@ -283,10 +312,10 @@ export function startDailySchedulers({ log }) {
         "0 22 * * *",
         async () => {
             try {
-                log?.("Execução agendada: envio diário (boa noite)", "info");
+                log?.("Execucao agendada: envio diario (boa noite)", "info");
                 await sendDaily(log);
             } catch (err) {
-                log?.(`Erro ao enviar rotina diária: ${err.message}`, "error");
+                log?.(`Erro ao enviar rotina diaria: ${err.message}`, "error");
             }
         },
         { timezone: tz }
@@ -305,5 +334,5 @@ export function startDailySchedulers({ log }) {
         { timezone: tz }
     );
 
-    log?.("Schedulers diários/eventos registrados com node-cron", "info");
+    log?.("Schedulers diarios/eventos registrados com node-cron", "info");
 }
