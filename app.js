@@ -23,6 +23,7 @@ import { MEDIA_TYPES, saveMedia, listAllMedia } from "./mediaManager.js";
 import { startIncomingConsumer } from "./services/incomingQueue.js";
 import { createIncomingProcessor } from "./handlers/incoming.js";
 import { startDailySchedulers } from "./services/scheduler.js";
+import { mediaStaticMiddleware } from "./services/staticMedia.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +37,7 @@ app.set("trust proxy", true);
 // Middlewares
 app.use(cors());
 app.use(express.json());
+app.use(mediaStaticMiddleware({ rootDir: __dirname }));
 
 // Conectar DB
 const { dbConnected, mongoose, moment } = await connectDb(log);
