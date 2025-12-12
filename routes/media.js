@@ -2,6 +2,7 @@ import { existsSync, createReadStream, mkdirSync } from "fs";
 import { promises as fsPromises } from "fs";
 import { join, basename } from "path";
 import multer from "multer";
+import mime from "mime-types";
 
 function resolveBaseFolder(scope = "media") {
     return scope === "trigger" ? "media_triggers" : "media";
@@ -108,7 +109,8 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
             return res.status(404).json({ error: "Arquivo não encontrado" });
         }
 
-        res.setHeader("Content-Type", "application/octet-stream");
+        const contentType = mime.lookup(filename) || "application/octet-stream";
+        res.setHeader("Content-Type", contentType);
         res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
 
         const fileStream = createReadStream(filePath);
