@@ -77,8 +77,9 @@ export function createTriggerProcessor({ log, isDbConnected }) {
     const normalizeJid = (jid) => {
         if (!jid) return "";
         const str = jid.toString();
-        const base = str.split("@")[0];
-        return base;
+        // extrai apenas os dígitos para não depender do sufixo (@c.us/@lid)
+        const digits = (str.split("@")[0] || "").replace(/\D/g, "");
+        return digits;
     };
 
     let cache = { items: [], fetchedAt: 0 };
@@ -118,19 +119,11 @@ export function createTriggerProcessor({ log, isDbConnected }) {
             if (!triggers.length) return;
 
             const now = Date.now();
-            let senderId =
+            const senderId =
                 msg.author ||
                 msg.id?.participant ||
                 msg.from ||
                 "";
-            if (!senderId && typeof msg.getContact === "function") {
-                try {
-                    const c = await msg.getContact();
-                    senderId = c?.id?._serialized || "";
-                } catch (_) {
-                    // ignore
-                }
-            }
             const senderNorm = normalizeJid(senderId);
             for (const trig of triggers) {
                 if (!trig.active) continue;
@@ -154,8 +147,8 @@ export function createTriggerProcessor({ log, isDbConnected }) {
                 }
 
                 const globalKey = trig._id.toString();
-                const userId = msg.author || msg.from || "unknown";
-                const userKey = `${globalKey}:${userId}`;
+                const userId = senderId || msg.from || "unknown";
+                const userKey = `${globalKey}:${normalizeJid(userId)}`;
 
                 if (trig.cooldownSeconds > 0) {
                     const last = lastGlobalCooldown.get(globalKey) || 0;
