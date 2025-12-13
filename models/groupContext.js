@@ -6,6 +6,8 @@ const memberSchema = new Schema(
         id: { type: String, required: true },
         name: { type: String, default: "" },
         pushname: { type: String, default: "" },
+        displayName: { type: String, default: "" },
+        number: { type: String, default: "" },
         isAdmin: { type: Boolean, default: false },
         profilePicUrl: { type: String, default: "" },
     },
