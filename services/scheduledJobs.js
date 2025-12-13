@@ -2,6 +2,7 @@ import { Queue, Worker } from "bullmq";
 import moment from "moment-timezone";
 import path from "path";
 import { Schedule } from "../models/schedule.js";
+import { Phrase } from "../models/phrase.js";
 import { generateAICaption } from "./ai.js";
 import { enqueueSendMessage } from "./sendQueue.js";
 import { log } from "./logger.js";
@@ -136,13 +137,23 @@ async function processScheduleJob(scheduleId) {
 
     if (schedule.includeRandomPool !== false) {
         const randomMedia = await getRandomMedia();
-        if (randomMedia) {
-            const typeLabel =
-                randomMedia.type === "text"
-                    ? "Frase"
-                    : randomMedia.type === "image"
-                    ? "Foto"
-                    : "Vídeo";
+        const randomTextDoc = await Phrase.aggregate([{ $sample: { size: 1 } }]);
+        const candidates = [];
+        if (randomMedia) candidates.push({ kind: "media", data: randomMedia });
+        if (randomTextDoc && randomTextDoc.length) {
+            candidates.push({
+                kind: "text",
+                data: { type: "text", content: randomTextDoc[0].text || "" },
+            });
+        }
+        if (candidates.length) {
+            const choice = candidates[Math.floor(Math.random() * candidates.length)];
+            const isText = choice.kind === "text" || choice.data.type === "text";
+            const typeLabel = isText
+                ? "Frase"
+                : choice.data.type === "image"
+                ? "Foto"
+                : "Vídeo";
             if (schedule.includeIntro) {
                 payloads.push({
                     groupId:
@@ -153,33 +164,31 @@ async function processScheduleJob(scheduleId) {
                     content: `${typeLabel} do dia:`,
                 });
             }
-
-            const baseInternal = (
-                process.env.MEDIA_BASE_URL ||
-                process.env.BACKEND_PUBLIC_URL ||
-                "http://backend:3000"
-            ).replace(/\/+$/, "");
-
-            if (randomMedia.type === "text") {
+            if (isText) {
                 payloads.push({
                     groupId:
                         process.env.GROUP_ID ||
                         process.env.ALLOWED_PING_GROUP ||
                         "120363339314665620@g.us",
                     type: "text",
-                    content: randomMedia.content || "",
+                    content: choice.data.content || "",
                 });
             } else {
-                const filename = path.basename(randomMedia.path);
+                const baseInternal = (
+                    process.env.MEDIA_BASE_URL ||
+                    process.env.BACKEND_PUBLIC_URL ||
+                    "http://backend:3000"
+                ).replace(/\/+$/, "");
+                const filename = path.basename(choice.data.path);
                 payloads.push({
                     groupId:
                         process.env.GROUP_ID ||
                         process.env.ALLOWED_PING_GROUP ||
                         "120363339314665620@g.us",
-                    type: randomMedia.type,
-                    content: `${baseInternal}/media/${randomMedia.type}/${filename}`,
+                    type: choice.data.type,
+                    content: `${baseInternal}/media/${choice.data.type}/${filename}`,
                     cleanup: {
-                        type: randomMedia.type,
+                        type: choice.data.type,
                         filename,
                         scope: "media",
                     },

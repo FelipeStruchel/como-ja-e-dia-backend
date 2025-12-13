@@ -6,8 +6,21 @@ function parseSchedule(body) {
     const safe = {};
     safe.name = (body.name || "").toString().trim() || "Mensagem";
     safe.kind = ["greeting"].includes(body.kind) ? body.kind : "greeting";
-    safe.type = ["text", "image", "video"].includes(body.type) ? body.type : "text";
+    const inferMediaType = (url) => {
+        const lower = (url || "").toLowerCase();
+        const videoExt = [".mp4", ".mov", ".avi", ".mkv", ".webm"];
+        if (videoExt.some((ext) => lower.endsWith(ext))) return "video";
+        return "image";
+    };
+    const rawType = (body.type || "").toString();
     safe.mediaUrl = (body.mediaUrl || "").toString().trim();
+    const inferredType =
+        rawType === "text"
+            ? "text"
+            : ["image", "video"].includes(rawType)
+            ? rawType
+            : inferMediaType(safe.mediaUrl);
+    safe.type = inferredType || "text";
     safe.textContent = (body.textContent || "").toString();
     safe.captionMode = ["auto", "custom", "none"].includes(body.captionMode)
         ? body.captionMode
