@@ -23,6 +23,7 @@ const TRIGGER_BASE = "media_triggers";
 function resolveBaseFolder(scope = "media") {
     if (scope === "daily") return DAILY_BASE;
     if (scope === "trigger") return TRIGGER_BASE;
+    if (scope === "random") return DEFAULT_BASE;
     return DEFAULT_BASE;
 }
 

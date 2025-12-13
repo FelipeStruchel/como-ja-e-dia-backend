@@ -146,7 +146,7 @@ async function processScheduleJob(scheduleId) {
     }
 
     if (schedule.includeRandomPool !== false) {
-        const randomMedia = await getRandomMedia("randomMedia");
+        const randomMedia = await getRandomMedia();
         if (randomMedia) {
             const typeLabel =
                 randomMedia.type === "text"
@@ -165,6 +165,12 @@ async function processScheduleJob(scheduleId) {
                 });
             }
 
+            const baseInternal = (
+                process.env.MEDIA_BASE_URL ||
+                process.env.BACKEND_PUBLIC_URL ||
+                "http://backend:3000"
+            ).replace(/\/+$/, "");
+
             if (randomMedia.type === "text") {
                 payloads.push({
                     groupId:
@@ -182,7 +188,7 @@ async function processScheduleJob(scheduleId) {
                         process.env.ALLOWED_PING_GROUP ||
                         "120363339314665620@g.us",
                     type: randomMedia.type,
-                    content: randomMedia.path,
+                    content: `${baseInternal}/media/${randomMedia.type}/${filename}`,
                     cleanup: {
                         type: randomMedia.type,
                         filename,
