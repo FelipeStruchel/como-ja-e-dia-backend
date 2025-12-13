@@ -6,7 +6,8 @@ import mime from "mime-types";
 import { resolveBaseFolder } from "../mediaManager.js";
 
 function buildUrl(type, filename, scope) {
-    const base = (process.env.BACKEND_PUBLIC_URL || "").replace(/\/+$/, "");
+    const base =
+        (process.env.MEDIA_BASE_URL || process.env.BACKEND_PUBLIC_URL || "").replace(/\/+$/, "");
     if (scope === "daily") {
         const rel = `/daily_vid/${filename}`;
         return base ? `${base}${rel}` : rel;
