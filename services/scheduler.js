@@ -1,7 +1,7 @@
 import moment from "moment-timezone";
 import cron from "node-cron";
 import { existsSync, readdirSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, basename } from "path";
 import { fileURLToPath } from "url";
 import { MEDIA_TYPES, getRandomMedia, removeMedia } from "../mediaManager.js";
 import { generateAICaption } from "./ai.js";
@@ -12,30 +12,32 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const MAX_MESSAGE_LENGTH = 4096;
-const backendBaseUrl = (process.env.BACKEND_PUBLIC_URL || "http://backend:3000").replace(
-    /\/+$/,
-    ""
-);
+const mediaBaseUrl = (
+    process.env.MEDIA_BASE_URL ||
+    process.env.BACKEND_PUBLIC_URL ||
+    "http://backend:3000"
+).replace(/\/+$/, "");
 
 function buildPublicMediaUrl(pathLike) {
     if (!pathLike) return null;
     if (/^https?:\/\//i.test(pathLike)) return pathLike;
     const normalized = pathLike.replace(/\\/g, "/");
-    if (normalized.startsWith("/")) return `${backendBaseUrl}${normalized}`;
-    if (normalized.startsWith("daily_vid/") || normalized.includes("/daily_vid/")) {
+    // tenta extrair relativa mesmo se for caminho absoluto
+    if (normalized.includes("/daily_vid/")) {
         const file = normalized.split("/daily_vid/").pop();
-        return `${backendBaseUrl}/daily_vid/${file}`;
+        return `${mediaBaseUrl}/daily_vid/${file}`;
     }
-    if (normalized.startsWith("media_triggers/") || normalized.includes("/media_triggers/")) {
+    if (normalized.includes("/media_triggers/")) {
         const file = normalized.split("/media_triggers/").pop();
-        return `${backendBaseUrl}/media_triggers/${file}`;
+        return `${mediaBaseUrl}/media_triggers/${file}`;
     }
-    if (normalized.startsWith("media/") || normalized.includes("/media/")) {
+    if (normalized.includes("/media/")) {
         const file = normalized.split("/media/").pop();
-        return `${backendBaseUrl}/media/${file}`;
+        return `${mediaBaseUrl}/media/${file}`;
     }
+    if (normalized.startsWith("/")) return `${mediaBaseUrl}${normalized}`;
     // Fallback: treat as media file relative to /media
-    return `${backendBaseUrl}/media/${normalized.replace(/^\/+/, "")}`;
+    return `${mediaBaseUrl}/media/${normalized.replace(/^\/+/, "")}`;
 }
 
 function getLocalDailyVideo(log) {
@@ -222,9 +224,13 @@ async function sendDaily(log) {
                 groupId,
                 type: randomMedia.type,
                 content: mediaUrl,
+                cleanup: {
+                    type: randomMedia.type,
+                    filename: basename(randomMedia.path),
+                    scope: randomMedia.baseFolder || "media",
+                },
             });
         }
-        await removeMedia(randomMedia.path);
     }
 }
 
