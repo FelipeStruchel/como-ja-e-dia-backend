@@ -18,8 +18,10 @@ function parseSchedule(body) {
     safe.includeRandomPool =
         body.includeRandomPool !== undefined ? !!body.includeRandomPool : true;
     safe.personaPrompt = (body.personaPrompt || "").toString();
+    safe.useCronOverride = !!body.useCronOverride;
     safe.cron = (body.cron || "").toString().trim();
-    safe.timezone = (body.timezone || "America/Sao_Paulo").toString().trim();
+    safe.time = (body.time || "06:00").toString().trim();
+    safe.timezone = "America/Sao_Paulo";
     safe.startDate = body.startDate ? new Date(body.startDate) : null;
     safe.endDate = body.endDate ? new Date(body.endDate) : null;
     safe.daysOfWeek = Array.isArray(body.daysOfWeek)

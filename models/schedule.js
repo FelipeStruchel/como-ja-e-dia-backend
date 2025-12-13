@@ -14,7 +14,9 @@ const scheduleSchema = new Schema(
         cleanupAfterSend: { type: Boolean, default: false },
         includeRandomPool: { type: Boolean, default: true },
         personaPrompt: { type: String, default: "" }, // se vazio, usa default
-        cron: { type: String, required: true },
+        cron: { type: String, default: "" }, // usado se useCronOverride=true
+        useCronOverride: { type: Boolean, default: false },
+        time: { type: String, default: "06:00" }, // HH:mm
         timezone: { type: String, default: "America/Sao_Paulo" },
         startDate: { type: Date, default: null },
         endDate: { type: Date, default: null },

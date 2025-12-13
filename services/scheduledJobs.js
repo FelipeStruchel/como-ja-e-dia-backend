@@ -16,8 +16,18 @@ const queueName = "scheduled-jobs";
 const schedQueue = new Queue(queueName, { connection });
 
 function buildRepeatOpts(schedule) {
+    // monta cron a partir de hora/dia quando não há override
+    let cron = schedule.cron || "";
+    if (!schedule.useCronOverride) {
+        const [hh = "06", mm = "00"] = (schedule.time || "06:00").split(":");
+        const days =
+            Array.isArray(schedule.daysOfWeek) && schedule.daysOfWeek.length
+                ? schedule.daysOfWeek.join(",")
+                : "*";
+        cron = `${mm} ${hh} * * ${days}`;
+    }
     return {
-        cron: schedule.cron,
+        cron,
         tz: schedule.timezone || "America/Sao_Paulo",
         startDate: schedule.startDate || undefined,
         endDate: schedule.endDate || undefined,
