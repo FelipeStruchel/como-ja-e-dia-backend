@@ -8,14 +8,14 @@ import { resolveBaseFolder } from "../mediaManager.js";
 function buildUrls(type, filename, scope) {
     const baseInternal = (process.env.MEDIA_BASE_URL || "http://backend:3000").replace(/\/+$/, "");
     const basePublic = (process.env.BACKEND_PUBLIC_URL || baseInternal).replace(/\/+$/, "");
-    if (scope === "daily") {
-        const rel = `/daily_vid/${filename}`;
-        return {
-            url: `${baseInternal}${rel}`,
-            urlPublic: `${basePublic}${rel}`,
-        };
-    }
-    const rel = `/media/${type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
+    const prefix =
+        scope === "daily"
+            ? "/daily_vid"
+            : "/media";
+    const rel =
+        scope === "daily"
+            ? `${prefix}/${type}/${filename}`
+            : `${prefix}/${type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
     return {
         url: `${baseInternal}${rel}`,
         urlPublic: `${basePublic}${rel}`,
