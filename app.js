@@ -22,9 +22,11 @@ import { generateAIAnalysis } from "./services/ai.js";
 import { MEDIA_TYPES, saveMedia, listAllMedia } from "./mediaManager.js";
 import { startIncomingConsumer } from "./services/incomingQueue.js";
 import { createIncomingProcessor } from "./handlers/incoming.js";
-import { startDailySchedulers } from "./services/scheduler.js";
 import { mediaStaticMiddleware } from "./services/staticMedia.js";
 import { registerGroupContextRoutes } from "./routes/groupContext.js";
+import { registerPersonaRoutes } from "./routes/persona.js";
+import { registerScheduleRoutes } from "./routes/schedules.js";
+import { startScheduledWorker, resyncSchedules } from "./services/scheduledJobs.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,6 +70,8 @@ registerTriggerRoutes(app);
 registerLogRoutes(app);
 registerLogIngestRoute(app);
 registerGroupContextRoutes(app);
+registerPersonaRoutes(app);
+registerScheduleRoutes(app);
 
 app.get("/db-status", (req, res) => {
     res.json({ connected: isDbConnected() });
@@ -82,7 +86,8 @@ const processIncoming = createIncomingProcessor({
     enqueueSendMessage,
 });
 startIncomingConsumer(processIncoming);
-startDailySchedulers({ log });
+startScheduledWorker();
+resyncSchedules();
 
 // Start server
 app.listen(PORT, () => {

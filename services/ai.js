@@ -2,6 +2,8 @@ import { OpenAI } from "openai";
 import moment from "moment-timezone";
 import "moment/locale/pt-br.js";
 import { log } from "../services/logger.js";
+import { getPersonaPrompt } from "./personaConfig.js";
+import { AI_PERSONA_DEFAULT, AI_PERSONA_GUARDS } from "./personaConstants.js";
 
 moment.locale("pt-br");
 
@@ -9,21 +11,8 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
-export const AI_PERSONA = `
-    Você é um bot de WhatsApp criado por Grego.
-    Fala como aquele amigo sarcástico que sempre tem uma resposta pronta.
-    Humor ácido, direto e às vezes cruel, mas nunca forçado.
-    Prefere zoar a situação do que explicar qualquer coisa.
-    Nada de frase montada, piada pronta, metáfora “engraçadinha” ou texto com cabeçalho.
-    PROIBIDO usar labels como "Resumo:", "Observação:", "Nota:", "Outra:" ou similares.
-    Não pareça roteiro: nada de enumerações, bullets, tópicos ou títulos.
-    Fala curto, em PT-BR, com gírias leves. Máximo 2 frases. Máximo 2 emojis (só se deixarem mais engraçado).
-    Não peça desculpas. Não diga que é bot/IA. Não eduque. Não explique o óbvio.
-    Evite soar “fofo” ou “bonzinho”; sarcasmo seco é a base.
-    Quando “filosofar”, é no tom de saco cheio, não de coach.
-    Não ataque grupos protegidos; zoe a situação ou a própria pessoa que fala, de leve.
-    Responda APENAS com a mensagem final, sem preâmbulo e sem formatação de relatório.
-`;
+// Parte fixa que não deve ser editada (formato/segurança)
+export { AI_PERSONA_DEFAULT, AI_PERSONA_GUARDS };
 
 function _preview(str, n = 160) {
     return String(str || "")
@@ -176,7 +165,7 @@ export async function callOpenAIChat(
     }
 }
 
-export const AI_PERSONA_BASE = AI_PERSONA;
+export const AI_PERSONA_BASE = AI_PERSONA_DEFAULT;
 
 export async function generateAICaption({
     purpose = "greeting",
@@ -188,8 +177,12 @@ export async function generateAICaption({
     eventsTodayDetails = null,
     nearestDateStr = null,
     todayDateStr = null,
+    personaOverride = null,
 }) {
     if (!process.env.OPENAI_API_KEY) return null;
+    const personaPrompt = personaOverride
+        ? personaOverride.trim()
+        : await getPersonaPrompt();
     const eventList = names.length ? names.join(", ") : "nenhum evento";
     const userMsgParts = [];
     if (purpose === "greeting") {
@@ -203,9 +196,8 @@ export async function generateAICaption({
             );
         } else {
             userMsgParts.push(
-                `Gere uma legenda curta (1-3 frases) em português brasileiro dando bom dia ou boa noite ( dependendo do contexto de data e horario passados via Contexto: hoje é ... )
-                caso o evento seja hoje informe que o evento é hoje, caso contrario NÃO diga que o evento ja comecou ou que é hoje, apenasw 
-                mencionando os eventos proximos eventos, se atente a data do evento e contextos de data passados: ${eventList}${
+                `Gere uma legenda curta (1-3 frases) em português brasileiro dando bom dia ou boa noite (dependendo do contexto de data e horario passados via Contexto: hoje é ...).
+                Caso o evento seja hoje informe que o evento é hoje; caso contrário NÃO diga que o evento já começou ou que é hoje, apenas mencione os próximos eventos, se atente à data do evento e contextos de data passados: ${eventList}${
                     timeStr ? " (" + timeStr + ")" : ""
                 }. Seja ácido, engraçado, sarcástico e leve. Evite metáforas inspiracionais. Máximo 2 emojis. RETORNE SOMENTE a legenda final, sem explicações, sem introduções como 'claro' ou 'vou gerar', sem passos.`
             );
@@ -227,18 +219,18 @@ export async function generateAICaption({
 
     if (purpose === "greeting") {
         userMsgParts.push(
-            "Se possivel, com um toque de crueldade divertida (sem exagero)."
+            "Se possível, com um toque de crueldade divertida (sem exagero)."
         );
         userMsgParts.push(
             "Contexto importante: se o evento ainda nao for hoje, nao diga parabens nem que ja comecou; deixe claro que ainda falta e inclua a contagem."
         );
         if (eventsTodayDetails) {
             userMsgParts.push(
-                `Hoje tem: ${eventsTodayDetails}. Mencione todos com seus horarios.`
+                `Hoje tem: ${eventsTodayDetails}. Mencione todos com seus horários.`
             );
         } else if (nearestDateStr) {
             userMsgParts.push(
-                `Proximo evento em: ${nearestDateStr}. Não diga que ja comecou; deixe claro que ainda falta.`
+                `Próximo evento em: ${nearestDateStr}. Não diga que já começou; deixe claro que ainda falta.`
             );
         }
         if (
@@ -248,7 +240,7 @@ export async function generateAICaption({
             typeof countdown.minutes === "number"
         ) {
             userMsgParts.push(
-                `Obrigatorio: inclua no final a contagem de tempo restante neste formato exato: "Faltam ${countdown.days} dias, ${countdown.hours} horas e ${countdown.minutes} minutos".`
+                `Obrigatório: inclua no final a contagem de tempo restante neste formato exato: "Faltam ${countdown.days} dias, ${countdown.hours} horas e ${countdown.minutes} minutos".`
             );
         }
     }
@@ -260,7 +252,7 @@ export async function generateAICaption({
         "Inclua pelo menos uma observacao sarcastica ou piada curta; evite resposta generica/obvia; mantenha tom acido da persona."
     );
     const messages = [
-        { role: "system", content: AI_PERSONA },
+        { role: "system", content: personaPrompt },
         { role: "user", content: userMsgParts.join("\n") },
     ];
 
@@ -278,12 +270,13 @@ export async function generateAICaption({
 
 export async function generateAIAnalysis(messagesArray) {
     if (!process.env.OPENAI_API_KEY) return null;
+    const personaPrompt = await getPersonaPrompt();
     function redactNumbers(text) {
         if (!text) return text;
         try {
             let s = String(text);
-            s = s.replace(/\+?\d[\d\s().\-]{4,}\d/g, "[NÚMERO_REMOVIDO]");
-            s = s.replace(/\d{4,}/g, "[NÚMERO_REMOVIDO]");
+            s = s.replace(/\+?\d[\d\s().\-]{4,}\d/g, "[NUMERO_REMOVIDO]");
+            s = s.replace(/\d{4,}/g, "[NUMERO_REMOVIDO]");
             return s;
         } catch (e) {
             return text;
@@ -304,14 +297,14 @@ export async function generateAIAnalysis(messagesArray) {
         })
         .join("\n");
 
-    const userPrompt = `Você vai analisar as mensagens abaixo e responder com uma análise curta e afiada no estilo da persona (ácido, sarcástico, leve ofensa). Procure algo para zoar nas mensagens, resuma os principais pontos e dê 2-3 observações engraçadas. Não seja muito longo (3-4 frases). IMPORTANTE: NÚMEROS TELEFÔNICOS E DADOS NUMÉRICOS FORAM REMOVIDOS DO TEXTO (substituídos por [NÚMERO_REMOVIDO]). NÃO MENCIONE, NÃO TENTE RECONSTRUIR OU COMENTAR NENHUM NÚMERO. \nMensagens:\n${safeMessages} \n FIM DAS MENSAGENS. \n`;
+    const userPrompt = `Você vai analisar as mensagens abaixo e responder com uma análise curta e afiada no estilo da persona (ácido, sarcástico, leve ofensa). Procure algo para zoar nas mensagens, resuma os principais pontos e dê 2-3 observações engraçadas. Não seja muito longo (3-4 frases). IMPORTANTE: NÚMEROS TELEFÔNICOS E DADOS NUMÉRICOS FORAM REMOVIDOS DO TEXTO (substituídos por [NUMERO_REMOVIDO]). NÃO MENCIONE, NÃO TENTE RECONSTRUIR OU COMENTAR NENHUM NÚMERO. \nMensagens:\n${safeMessages} \n FIM DAS MENSAGENS. \n`;
 
     const userPromptFinal =
         userPrompt +
         " Inclua pelo menos UMA piada/observacao sarcastica; evite resposta generica/obvia; mantenha tom acido; RETORNE SOMENTE o texto final, sem explicacoes, sem preambulo." +
-        "Formato: escreva 1–2 frases, sem labels (ex.: “Resumo:”, “Observação:”) e sem tópicos. Só o texto final.";
+        "Formato: escreva 1–2 frases, sem labels (ex.: \"Resumo:\", \"Observacao:\") e sem topicos. Só o texto final.";
     const messages = [
-        { role: "system", content: AI_PERSONA },
+        { role: "system", content: personaPrompt },
         { role: "user", content: userPromptFinal },
     ];
 

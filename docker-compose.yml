@@ -15,6 +15,7 @@ services:
     volumes:
       - backend-media:/app/media
       - backend-media-triggers:/app/media_triggers
+      - backend-daily:/app/daily_vid
     networks:
       - bot-net
 
@@ -26,3 +27,4 @@ networks:
 volumes:
   backend-media:
   backend-media-triggers:
+  backend-daily:
