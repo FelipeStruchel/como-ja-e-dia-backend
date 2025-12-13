@@ -5,15 +5,21 @@ import multer from "multer";
 import mime from "mime-types";
 import { resolveBaseFolder } from "../mediaManager.js";
 
-function buildUrl(type, filename, scope) {
-    const base =
-        (process.env.MEDIA_BASE_URL || process.env.BACKEND_PUBLIC_URL || "").replace(/\/+$/, "");
+function buildUrls(type, filename, scope) {
+    const baseInternal = (process.env.MEDIA_BASE_URL || "http://backend:3000").replace(/\/+$/, "");
+    const basePublic = (process.env.BACKEND_PUBLIC_URL || baseInternal).replace(/\/+$/, "");
     if (scope === "daily") {
         const rel = `/daily_vid/${filename}`;
-        return base ? `${base}${rel}` : rel;
+        return {
+            url: `${baseInternal}${rel}`,
+            urlPublic: `${basePublic}${rel}`,
+        };
     }
     const rel = `/media/${type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
-    return base ? `${base}${rel}` : rel;
+    return {
+        url: `${baseInternal}${rel}`,
+        urlPublic: `${basePublic}${rel}`,
+    };
 }
 
 export function createUploadMiddleware() {
@@ -87,12 +93,12 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
             const baseFolder = resolveBaseFolder(scope);
             const media = await saveMedia(req.file, type, baseFolder);
             const filename = basename(media.path);
-            const url = buildUrl(media.type, filename, scope);
+            const urls = buildUrls(media.type, filename, scope);
 
             res.setHeader("Content-Type", "application/json");
             res.status(201).json({
                 message: "Mídia salva com sucesso",
-                media: { ...media, url },
+                media: { ...media, url: urls.url, urlPublic: urls.urlPublic },
             });
         } catch (error) {
             res.setHeader("Content-Type", "application/json");
@@ -147,10 +153,14 @@ export function registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia 
                 media = media.filter((item) => item.type !== MEDIA_TYPES.TEXT);
             }
 
-            const mediaWithUrls = media.map((item) => ({
-                ...item,
-                url: buildUrl(item.type, basename(item.path), scope),
-            }));
+            const mediaWithUrls = media.map((item) => {
+                const urls = buildUrls(item.type, basename(item.path), scope);
+                return {
+                    ...item,
+                    url: urls.url,
+                    urlPublic: urls.urlPublic,
+                };
+            });
             res.json(mediaWithUrls);
         } catch (error) {
             res.status(500).json({ error: error.message });
