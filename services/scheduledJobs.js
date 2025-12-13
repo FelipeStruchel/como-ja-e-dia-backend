@@ -92,11 +92,6 @@ async function processScheduleJob(scheduleId) {
     const now = moment.tz(schedule.timezone || "America/Sao_Paulo");
     if (!shouldRunToday(schedule, now)) return;
 
-    const introText =
-        schedule.includeIntro && schedule.type !== "text"
-            ? `${schedule.type === "image" ? "Foto" : "Vídeo"} do dia:`
-            : null;
-
     let caption = null;
     if (schedule.captionMode === "custom") caption = schedule.customCaption || "";
     else if (schedule.captionMode === "auto") {
@@ -116,16 +111,6 @@ async function processScheduleJob(scheduleId) {
     }
 
     const payloads = [];
-    if (introText) {
-        payloads.push({
-            groupId:
-                process.env.GROUP_ID ||
-                process.env.ALLOWED_PING_GROUP ||
-                "120363339314665620@g.us",
-            type: "text",
-            content: introText,
-        });
-    }
 
     const mediaUrl = schedule.mediaUrl || schedule.content || "";
     if (schedule.type === "text") {
@@ -165,18 +150,20 @@ async function processScheduleJob(scheduleId) {
         if (randomMedia) {
             const typeLabel =
                 randomMedia.type === "text"
-                    ? "Texto"
+                    ? "Frase"
                     : randomMedia.type === "image"
                     ? "Foto"
                     : "Vídeo";
-            payloads.push({
-                groupId:
-                    process.env.GROUP_ID ||
-                    process.env.ALLOWED_PING_GROUP ||
-                    "120363339314665620@g.us",
-                type: "text",
-                content: `${typeLabel} do dia:`,
-            });
+            if (schedule.includeIntro) {
+                payloads.push({
+                    groupId:
+                        process.env.GROUP_ID ||
+                        process.env.ALLOWED_PING_GROUP ||
+                        "120363339314665620@g.us",
+                    type: "text",
+                    content: `${typeLabel} do dia:`,
+                });
+            }
 
             if (randomMedia.type === "text") {
                 payloads.push({
