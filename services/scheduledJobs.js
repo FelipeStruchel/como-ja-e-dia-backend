@@ -5,7 +5,7 @@ import { Schedule } from "../models/schedule.js";
 import { generateAICaption } from "./ai.js";
 import { enqueueSendMessage } from "./sendQueue.js";
 import { log } from "./logger.js";
-import { getRandomMedia, removeMedia } from "../mediaManager.js";
+import { getRandomMedia } from "../mediaManager.js";
 
 const connection = {
     host: process.env.REDIS_HOST || "redis",
@@ -123,10 +123,6 @@ async function processScheduleJob(scheduleId) {
             content: schedule.textContent || "",
         });
     } else {
-        const shouldCleanup =
-            schedule.cleanupAfterSend &&
-            schedule.endDate &&
-            moment(now).isSameOrAfter(schedule.endDate, "day");
         payloads.push({
             groupId:
                 process.env.GROUP_ID ||
@@ -135,13 +131,6 @@ async function processScheduleJob(scheduleId) {
             type: schedule.type,
             content: mediaUrl,
             caption: caption || undefined,
-            cleanup: shouldCleanup
-                ? {
-                      type: schedule.type,
-                      filename: mediaUrl.split("/").pop(),
-                      scope: "media",
-                  }
-                : undefined,
         });
     }
 
@@ -196,7 +185,6 @@ async function processScheduleJob(scheduleId) {
                     },
                 });
             }
-            await removeMedia(randomMedia.path);
         }
     }
 
