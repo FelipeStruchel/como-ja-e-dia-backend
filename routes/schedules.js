@@ -28,6 +28,16 @@ function parseSchedule(body) {
         ? body.daysOfWeek.map((d) => parseInt(d, 10)).filter((n) => !Number.isNaN(n))
         : [];
     safe.active = body.active !== undefined ? !!body.active : true;
+
+    // Se não usar cron override, monta cron a partir de hora/dias
+    if (!safe.useCronOverride) {
+        const [hh = "06", mm = "00"] = safe.time.split(":");
+        const days =
+            Array.isArray(safe.daysOfWeek) && safe.daysOfWeek.length
+                ? safe.daysOfWeek.join(",")
+                : "*";
+        safe.cron = `${mm} ${hh} * * ${days}`;
+    }
     return safe;
 }
 
