@@ -30,7 +30,7 @@ export async function enqueueSendMessage(payload, opts = {}) {
     };
     const jobOpts = {
         attempts: opts.attempts || 3,
-        removeOnComplete: true,
+        removeOnComplete: 50,
         removeOnFail: 50,
         priority: opts.priority,
         delay: opts.delay,

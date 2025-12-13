@@ -118,11 +118,19 @@ export function createTriggerProcessor({ log, isDbConnected }) {
             if (!triggers.length) return;
 
             const now = Date.now();
-            const senderId =
+            let senderId =
                 msg.author ||
                 msg.id?.participant ||
                 msg.from ||
                 "";
+            if (!senderId && typeof msg.getContact === "function") {
+                try {
+                    const c = await msg.getContact();
+                    senderId = c?.id?._serialized || "";
+                } catch (_) {
+                    // ignore
+                }
+            }
             const senderNorm = normalizeJid(senderId);
             for (const trig of triggers) {
                 if (!trig.active) continue;

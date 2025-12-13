@@ -26,7 +26,7 @@ export async function enqueueGroupContextJob(groupId) {
     const jobPromise = queue.add(
         "group-context",
         { groupId },
-        { removeOnComplete: true, removeOnFail: 50 }
+        { removeOnComplete: 50, removeOnFail: 50 }
     );
 
     // Timeout defensivo para evitar request travando se Redis estiver indisponivel
