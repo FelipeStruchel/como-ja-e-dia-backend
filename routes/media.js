@@ -3,13 +3,14 @@ import { promises as fsPromises } from "fs";
 import { join, basename } from "path";
 import multer from "multer";
 import mime from "mime-types";
-
-function resolveBaseFolder(scope = "media") {
-    return scope === "trigger" ? "media_triggers" : "media";
-}
+import { resolveBaseFolder } from "../mediaManager.js";
 
 function buildUrl(type, filename, scope) {
     const base = (process.env.BACKEND_PUBLIC_URL || "").replace(/\/+$/, "");
+    if (scope === "daily") {
+        const rel = `/daily_vid/${filename}`;
+        return base ? `${base}${rel}` : rel;
+    }
     const rel = `/media/${type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
     return base ? `${base}${rel}` : rel;
 }

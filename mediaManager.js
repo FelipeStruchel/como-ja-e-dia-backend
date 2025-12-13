@@ -17,6 +17,14 @@ const MEDIA_TYPES = {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DEFAULT_BASE = "media";
+const DAILY_BASE = "daily_vid";
+const TRIGGER_BASE = "media_triggers";
+
+function resolveBaseFolder(scope = "media") {
+    if (scope === "daily") return DAILY_BASE;
+    if (scope === "trigger") return TRIGGER_BASE;
+    return DEFAULT_BASE;
+}
 
 function getMediaDirs(baseFolder = DEFAULT_BASE) {
     return {
@@ -172,6 +180,9 @@ export {
     checkFolderSize,
     listAllMedia,
     DEFAULT_BASE,
+    DAILY_BASE,
+    TRIGGER_BASE,
+    resolveBaseFolder,
     getMediaDirs,
     initializeDirectories,
 };
