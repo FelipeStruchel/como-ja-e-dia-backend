@@ -74,6 +74,13 @@ export function createTriggerProcessor({ log, isDbConnected }) {
         process.env.GROUP_ID ||
         "120363339314665620@g.us";
 
+    const normalizeJid = (jid) => {
+        if (!jid) return "";
+        const str = jid.toString();
+        const base = str.split("@")[0];
+        return base;
+    };
+
     let cache = { items: [], fetchedAt: 0 };
     const cacheTtlMs = 30_000;
     const lastGlobalCooldown = new Map();
@@ -111,13 +118,23 @@ export function createTriggerProcessor({ log, isDbConnected }) {
             if (!triggers.length) return;
 
             const now = Date.now();
-            const senderId = msg.author || msg.from || "";
+            const senderId =
+                msg.author ||
+                msg.id?.participant ||
+                msg.from ||
+                "";
+            const senderNorm = normalizeJid(senderId);
             for (const trig of triggers) {
                 if (!trig.active) continue;
                 if (trig.expiresAt && new Date(trig.expiresAt).getTime() <= now) continue;
                 if (trig.maxUses && trig.triggeredCount >= trig.maxUses) continue;
                 if (Array.isArray(trig.allowedUsers) && trig.allowedUsers.length) {
-                    if (!senderId || !trig.allowedUsers.includes(senderId)) continue;
+                    const match = trig.allowedUsers.some(
+                        (u) =>
+                            u === senderId ||
+                            normalizeJid(u) === senderNorm
+                    );
+                    if (!senderId || !match) continue;
                 }
 
                 const matcher = buildMatcher(trig);
