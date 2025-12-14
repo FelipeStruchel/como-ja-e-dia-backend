@@ -271,8 +271,7 @@ export async function generateAICaption({
     );
     const messages = [
         { role: "system", content: personaPrompt },
-        { role: "user", content: userMsgParts.join("
-") },
+        { role: "user", content: userMsgParts.join("\n") },
     ];
 
     const modelForCaption = process.env.OPENAI_MODEL_GREET || "gpt-5-mini";
