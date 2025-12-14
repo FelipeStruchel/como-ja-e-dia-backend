@@ -20,43 +20,48 @@ function buildMatcher(trigger) {
 
     return (text) => {
         if (!text) return false;
+        const normalizedText = normalize(
+            text,
+            trigger.normalizeAccents,
+            trigger.caseSensitive
+        );
         for (const phrase of phrases) {
             if (!phrase) continue;
             if (trigger.matchType === "regex") {
+                const pattern = normalize(
+                    phrase,
+                    trigger.normalizeAccents,
+                    trigger.caseSensitive
+                );
                 try {
-                    const re = new RegExp(phrase, flags);
-                    if (re.test(text)) return true;
+                    const re = new RegExp(pattern, flags);
+                    if (re.test(normalizedText)) return true;
                 } catch (_) {
                     continue;
                 }
             } else if (trigger.matchType === "exact") {
+                const needle = normalize(
+                    phrase,
+                    trigger.normalizeAccents,
+                    trigger.caseSensitive
+                );
                 if (trigger.wholeWord) {
-                    const re = new RegExp(`\\b${escapeRegex(phrase)}\\b`, flags);
-                    if (re.test(text)) return true;
+                    const re = new RegExp(`\\b${escapeRegex(needle)}\\b`);
+                    if (re.test(normalizedText)) return true;
                 } else {
-                    if (
-                        normalize(text, trigger.normalizeAccents, trigger.caseSensitive) ===
-                        normalize(phrase, trigger.normalizeAccents, trigger.caseSensitive)
-                    ) {
-                        return true;
-                    }
+                    if (normalizedText === needle) return true;
                 }
             } else if (trigger.matchType === "contains") {
+                const needle = normalize(
+                    phrase,
+                    trigger.normalizeAccents,
+                    trigger.caseSensitive
+                );
                 if (trigger.wholeWord) {
-                    const re = new RegExp(`\\b${escapeRegex(phrase)}\\b`, flags);
-                    if (re.test(text)) return true;
+                    const re = new RegExp(`\\b${escapeRegex(needle)}\\b`);
+                    if (re.test(normalizedText)) return true;
                 } else {
-                    const hay = normalize(
-                        text,
-                        trigger.normalizeAccents,
-                        trigger.caseSensitive
-                    );
-                    const needle = normalize(
-                        phrase,
-                        trigger.normalizeAccents,
-                        trigger.caseSensitive
-                    );
-                    if (hay.includes(needle)) return true;
+                    if (normalizedText.includes(needle)) return true;
                 }
             }
         }
