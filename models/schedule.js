@@ -13,6 +13,7 @@ const scheduleSchema = new Schema(
         includeIntro: { type: Boolean, default: true },
         cleanupAfterSend: { type: Boolean, default: false },
         includeRandomPool: { type: Boolean, default: true },
+        announceEvents: { type: Boolean, default: false },
         personaPrompt: { type: String, default: "" }, // se vazio, usa default
         cron: { type: String, default: "" }, // usado se useCronOverride=true
         useCronOverride: { type: Boolean, default: false },

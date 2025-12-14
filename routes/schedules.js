@@ -30,6 +30,8 @@ function parseSchedule(body) {
     safe.cleanupAfterSend = !!body.cleanupAfterSend;
     safe.includeRandomPool =
         body.includeRandomPool !== undefined ? !!body.includeRandomPool : true;
+    safe.announceEvents =
+        body.announceEvents !== undefined ? !!body.announceEvents : false;
     safe.personaPrompt = (body.personaPrompt || "").toString();
     safe.useCronOverride = !!body.useCronOverride;
     safe.cron = (body.cron || "").toString().trim();

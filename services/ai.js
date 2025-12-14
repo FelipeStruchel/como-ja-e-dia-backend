@@ -171,6 +171,7 @@ export async function generateAICaption({
     purpose = "greeting",
     names = [],
     timeStr = null,
+    announceEvents = false,
     noEvents = false,
     dayOfWeek = null,
     countdown = null,
@@ -178,82 +179,100 @@ export async function generateAICaption({
     nearestDateStr = null,
     todayDateStr = null,
     personaOverride = null,
+    greetingHint = null,
 }) {
     if (!process.env.OPENAI_API_KEY) return null;
     const personaPrompt = personaOverride
         ? personaOverride.trim()
         : await getPersonaPrompt();
     const eventList = names.length ? names.join(", ") : "nenhum evento";
+    const greetingLine = greetingHint
+        ? `Cumprimente explicitamente com "${greetingHint}" de acordo com o horario.`
+        : "Cumprimente com bom dia/boa tarde/boa noite conforme o horario de Brasil.";
     const userMsgParts = [];
+
     if (purpose === "greeting") {
-        if (noEvents) {
+        if (announceEvents && noEvents) {
             userMsgParts.push(
-                `Gere uma legenda curta (1-2 frases) em português brasileiro para um grupo de WhatsApp dizendo que não há eventos hoje. Convide a galera a cadastrar no link: https://vmi2849405.contaboserver.net. Seja ácido, engraçado e levemente ofensivo conforme a persona. Use no máximo 2 emojis. RETORNE SOMENTE a legenda final, sem explicações, sem introduções como 'claro' ou 'vou gerar', sem passos.`
+                "Gere uma legenda curta (1-2 frases) em portugues brasileiro para um grupo de WhatsApp dizendo que nao ha eventos hoje. Convide a galera a cadastrar no link: https://vmi2849405.contaboserver.net. Seja acido, engraçado e levemente ofensivo conforme a persona. Use no maximo 2 emojis. RETORNE SOMENTE a legenda final, sem explicacoes, sem introducoes como 'claro' ou 'vou gerar', sem passos."
             );
-            if (dayOfWeek) userMsgParts.push(`Contexto: hoje é ${dayOfWeek}.`);
+            userMsgParts.push(greetingLine);
+            if (dayOfWeek) userMsgParts.push(`Contexto: hoje e ${dayOfWeek}.`);
             userMsgParts.push(
-                "Tente ser engraçado e sarcástico conforme a persona acima."
+                "Tente ser engraçado e sarcastico conforme a persona acima."
+            );
+        } else if (announceEvents && !noEvents) {
+            userMsgParts.push(
+                `Gere uma legenda curta (1-3 frases) em portugues brasileiro dando bom dia/boa tarde/boa noite conforme o horario.
+                Caso o evento seja hoje informe que o evento e hoje; caso contrario NAO diga que o evento ja comecou ou que e hoje, apenas mencione os proximos eventos, se atente a data do evento e contextos de data passados: ${eventList}${
+                    timeStr ? " (" + timeStr + ")" : ""
+                }. Seja acido, engraçado, sarcastico e leve. Evite metaforas inspiracionais. Maximo 2 emojis. RETORNE SOMENTE a legenda final, sem explicacoes, sem introducoes como 'claro' ou 'vou gerar', sem passos.`
+            );
+            userMsgParts.push(greetingLine);
+            if (dayOfWeek) userMsgParts.push(`Contexto: hoje e ${dayOfWeek}.`);
+            userMsgParts.push(
+                "Fale dos eventos usando o tom da persona passada e seja direto ao anunciar."
             );
         } else {
             userMsgParts.push(
-                `Gere uma legenda curta (1-3 frases) em português brasileiro dando bom dia ou boa noite (dependendo do contexto de data e horario passados via Contexto: hoje é ...).
-                Caso o evento seja hoje informe que o evento é hoje; caso contrário NÃO diga que o evento já começou ou que é hoje, apenas mencione os próximos eventos, se atente à data do evento e contextos de data passados: ${eventList}${
-                    timeStr ? " (" + timeStr + ")" : ""
-                }. Seja ácido, engraçado, sarcástico e leve. Evite metáforas inspiracionais. Máximo 2 emojis. RETORNE SOMENTE a legenda final, sem explicações, sem introduções como 'claro' ou 'vou gerar', sem passos.`
+                "Gere uma legenda curta (1-2 frases) em portugues brasileiro apenas para dar saudacao com humor (sem mencionar eventos). Seja acido, engraçado e leve; maximo 2 emojis. RETORNE SOMENTE a legenda final, sem explicacoes, sem introducoes como 'claro' ou 'vou gerar', sem passos."
             );
-            if (dayOfWeek) userMsgParts.push(`Contexto: hoje é ${dayOfWeek}.`);
+            userMsgParts.push(greetingLine);
+            if (dayOfWeek) userMsgParts.push(`Contexto: hoje e ${dayOfWeek}.`);
             userMsgParts.push(
-                "Tente ser engraçado e sarcástico conforme a persona acima."
+                "Tente ser engraçado e sarcastico conforme a persona acima."
             );
         }
     } else if (purpose === "event") {
         userMsgParts.push(
-            `Gere uma mensagem de anúncio para o grupo dizendo que é hora do evento ${eventList}${
+            `Gere uma mensagem de anuncio para o grupo dizendo que e hora do evento ${eventList}${
                 timeStr ? " (" + timeStr + ")" : ""
-            }. A mensagem deve conter: 1) uma frase clara anunciando que o evento começou; 2) uma observação curta e sarcástica (1 frase) comentando a situação — tipo uma zoeira rápida sobre o evento ou os participantes. Curta, sarcástica, com humor ácido, em português brasileiro. Até 2 emojis. RETORNE SOMENTE a mensagem final (duas frases no máximo), sem explicações.`
+            }. A mensagem deve conter: 1) uma frase clara anunciando que o evento comecou; 2) uma observacao curta e sarcastica (1 frase) comentando a situacao — tipo uma zoeira rapida sobre o evento ou os participantes. Curta, sarcastica, com humor acido, em portugues brasileiro. Ate 2 emojis. RETORNE SOMENTE a mensagem final (duas frases no maximo), sem explicacoes.`
         );
         userMsgParts.push(
-            "Tente ser engraçado e sarcástico conforme a persona acima."
+            "Tente ser engraçado e sarcastico conforme a persona acima."
         );
     }
 
     if (purpose === "greeting") {
         userMsgParts.push(
-            "Se possível, com um toque de crueldade divertida (sem exagero)."
+            "Se possivel, com um toque de crueldade divertida (sem exagero)."
         );
         userMsgParts.push(
             "Contexto importante: se o evento ainda nao for hoje, nao diga parabens nem que ja comecou; deixe claro que ainda falta e inclua a contagem."
         );
-        if (eventsTodayDetails) {
+        if (announceEvents && eventsTodayDetails) {
             userMsgParts.push(
-                `Hoje tem: ${eventsTodayDetails}. Mencione todos com seus horários.`
+                `Hoje tem: ${eventsTodayDetails}. Mencione todos com seus horarios.`
             );
-        } else if (nearestDateStr) {
+        } else if (announceEvents && nearestDateStr) {
             userMsgParts.push(
-                `Próximo evento em: ${nearestDateStr}. Não diga que já começou; deixe claro que ainda falta.`
+                `Proximo evento em: ${nearestDateStr}. Nao diga que ja comecou; deixe claro que ainda falta.`
             );
         }
         if (
+            announceEvents &&
             countdown &&
             typeof countdown.days === "number" &&
             typeof countdown.hours === "number" &&
             typeof countdown.minutes === "number"
         ) {
             userMsgParts.push(
-                `Obrigatório: inclua no final a contagem de tempo restante neste formato exato: "Faltam ${countdown.days} dias, ${countdown.hours} horas e ${countdown.minutes} minutos".`
+                `Obrigatorio: inclua no final a contagem de tempo restante neste formato exato: "Faltam ${countdown.days} dias, ${countdown.hours} horas e ${countdown.minutes} minutos".`
             );
         }
     }
     if (todayDateStr)
         userMsgParts.push(`Data de hoje (America/Sao_Paulo): ${todayDateStr}.`);
     if (purpose === "event" && dayOfWeek)
-        userMsgParts.push(`Contexto: hoje é ${dayOfWeek}.`);
+        userMsgParts.push(`Contexto: hoje e ${dayOfWeek}.`);
     userMsgParts.push(
         "Inclua pelo menos uma observacao sarcastica ou piada curta; evite resposta generica/obvia; mantenha tom acido da persona."
     );
     const messages = [
         { role: "system", content: personaPrompt },
-        { role: "user", content: userMsgParts.join("\n") },
+        { role: "user", content: userMsgParts.join("
+") },
     ];
 
     const modelForCaption = process.env.OPENAI_MODEL_GREET || "gpt-5-mini";

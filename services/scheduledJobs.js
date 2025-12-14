@@ -3,6 +3,7 @@ import moment from "moment-timezone";
 import path from "path";
 import { Schedule } from "../models/schedule.js";
 import { Phrase } from "../models/phrase.js";
+import { Event } from "../models/event.js";
 import { generateAICaption } from "./ai.js";
 import { enqueueSendMessage } from "./sendQueue.js";
 import { log } from "./logger.js";
@@ -32,6 +33,64 @@ function buildRepeatOpts(schedule) {
         tz: schedule.timezone || "America/Sao_Paulo",
         startDate: schedule.startDate || undefined,
         endDate: schedule.endDate || undefined,
+    };
+}
+
+function resolveGreeting(now) {
+    const minutes = now.hours() * 60 + now.minutes();
+    if (minutes <= 12 * 60) return "bom dia";
+    if (minutes <= 18 * 60) return "boa tarde";
+    return "boa noite";
+}
+
+async function buildEventsContext(tz) {
+    const now = moment.tz(tz);
+    const start = now.clone().startOf("day");
+    const end = now.clone().endOf("day");
+
+    const eventsToday = await Event.find({
+        date: { $gte: start.toDate(), $lte: end.toDate() },
+    })
+        .sort({ date: 1 })
+        .lean();
+
+    const nextEvent = await Event.find({ date: { $gt: end.toDate() } })
+        .sort({ date: 1 })
+        .limit(1)
+        .lean();
+
+    const names = eventsToday.map((e) => e.name);
+    let eventsTodayDetails = null;
+    if (eventsToday.length) {
+        eventsTodayDetails = eventsToday
+            .map((e) => {
+                const m = moment.tz(e.date, tz);
+                return `${e.name} às ${m.format("HH:mm")}`;
+            })
+            .join("; ");
+    }
+
+    let nearestDateStr = null;
+    let countdown = null;
+    if (nextEvent && nextEvent.length) {
+        const ev = nextEvent[0];
+        const m = moment.tz(ev.date, tz);
+        names.push(ev.name);
+        nearestDateStr = `${ev.name} em ${m.format("DD/MM/YYYY [às] HH:mm")}`;
+        const diff = moment.duration(m.diff(now));
+        countdown = {
+            days: Math.max(0, Math.floor(diff.asDays())),
+            hours: diff.hours(),
+            minutes: diff.minutes(),
+        };
+    }
+
+    return {
+        names,
+        eventsTodayDetails,
+        nearestDateStr,
+        countdown,
+        hasEvents: names.length > 0,
     };
 }
 
@@ -93,18 +152,29 @@ async function processScheduleJob(scheduleId) {
     const now = moment.tz(schedule.timezone || "America/Sao_Paulo");
     if (!shouldRunToday(schedule, now)) return;
 
+    const greetingHint = resolveGreeting(now);
+    const shouldAnnounceEvents = !!schedule.announceEvents;
+    const eventsContext = shouldAnnounceEvents
+        ? await buildEventsContext(schedule.timezone || "America/Sao_Paulo")
+        : { names: [], eventsTodayDetails: null, nearestDateStr: null, countdown: null, hasEvents: false };
+
     let caption = null;
     if (schedule.captionMode === "custom") caption = schedule.customCaption || "";
     else if (schedule.captionMode === "auto") {
         try {
             caption = await generateAICaption({
                 purpose: "greeting",
-                names: [],
-                timeStr: null,
-                noEvents: false,
+                names: eventsContext.names,
+                timeStr: eventsContext.eventsTodayDetails,
+                announceEvents: shouldAnnounceEvents,
+                noEvents: shouldAnnounceEvents ? !eventsContext.hasEvents : null,
                 dayOfWeek: now.format("dddd"),
                 todayDateStr: now.format("DD/MM/YYYY"),
                 personaOverride: schedule.personaPrompt || null,
+                eventsTodayDetails: eventsContext.eventsTodayDetails,
+                nearestDateStr: eventsContext.nearestDateStr,
+                countdown: eventsContext.countdown,
+                greetingHint,
             });
         } catch (err) {
             log(`Falha ao gerar caption auto: ${err.message}`, "warn");
@@ -113,7 +183,7 @@ async function processScheduleJob(scheduleId) {
 
     const payloads = [];
 
-    const mediaUrl = schedule.mediaUrl || schedule.content || "";
+    const mediaUrl = schedule.mediaUrl || "";
     if (schedule.type === "text") {
         payloads.push({
             groupId:
