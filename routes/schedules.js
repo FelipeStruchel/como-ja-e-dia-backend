@@ -27,7 +27,6 @@ function parseSchedule(body) {
         : "auto";
     safe.customCaption = (body.customCaption || "").toString();
     safe.includeIntro = body.includeIntro !== undefined ? !!body.includeIntro : true;
-    safe.cleanupAfterSend = !!body.cleanupAfterSend;
     safe.includeRandomPool =
         body.includeRandomPool !== undefined ? !!body.includeRandomPool : true;
     safe.announceEvents =

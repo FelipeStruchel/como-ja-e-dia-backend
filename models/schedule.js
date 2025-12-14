@@ -11,7 +11,6 @@ const scheduleSchema = new Schema(
         captionMode: { type: String, enum: ["auto", "custom", "none"], default: "auto" },
         customCaption: { type: String, default: "" },
         includeIntro: { type: Boolean, default: true },
-        cleanupAfterSend: { type: Boolean, default: false },
         includeRandomPool: { type: Boolean, default: true },
         announceEvents: { type: Boolean, default: false },
         personaPrompt: { type: String, default: "" }, // se vazio, usa default
