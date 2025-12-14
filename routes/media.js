@@ -12,10 +12,16 @@ function buildUrls(type, filename, scope) {
         scope === "daily"
             ? "/daily_vid"
             : "/media";
+    const typeSegmentMap = {
+        image: "images",
+        video: "videos",
+        text: "texts",
+    };
+    const typeSegment = typeSegmentMap[type] || `${type}s`;
     const rel =
         scope === "daily"
-            ? `${prefix}/${type}/${filename}`
-            : `${prefix}/${type}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
+            ? `${prefix}/${typeSegment}/${filename}`
+            : `${prefix}/${typeSegment}/${filename}${scope === "trigger" ? "?scope=trigger" : ""}`;
     return {
         url: `${baseInternal}${rel}`,
         urlPublic: `${basePublic}${rel}`,
