@@ -27,6 +27,7 @@ export async function enqueueSendMessage(payload, opts = {}) {
         caption: payload.caption,
         replyTo: payload.replyTo,
         mentions: payload.mentions || [],
+        cleanup: payload.cleanup, // usado pelo worker para apagar midias/frases apos envio
     };
     const jobOpts = {
         attempts: opts.attempts || 3,
