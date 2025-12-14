@@ -213,7 +213,11 @@ async function processScheduleJob(scheduleId) {
         if (randomTextDoc && randomTextDoc.length) {
             candidates.push({
                 kind: "text",
-                data: { type: "text", content: randomTextDoc[0].text || "" },
+                data: {
+                    type: "text",
+                    content: randomTextDoc[0].text || "",
+                    id: randomTextDoc[0]._id ? randomTextDoc[0]._id.toString() : null,
+                },
             });
         }
         if (candidates.length) {
@@ -242,6 +246,12 @@ async function processScheduleJob(scheduleId) {
                         "120363339314665620@g.us",
                     type: "text",
                     content: choice.data.content || "",
+                    cleanup: choice.data.id
+                        ? {
+                              type: "phrase",
+                              id: choice.data.id,
+                          }
+                        : undefined,
                 });
             } else {
                 const baseInternal = (
