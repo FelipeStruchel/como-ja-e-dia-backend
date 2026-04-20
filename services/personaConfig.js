@@ -1,4 +1,4 @@
-import { PersonaConfig } from "../models/personaConfig.js";
+import { prisma } from "./db.js";
 import { OpenAI } from "openai";
 import { AI_PERSONA_DEFAULT, AI_PERSONA_GUARDS } from "./personaConstants.js";
 import { log } from "./logger.js";
@@ -21,7 +21,7 @@ export async function getPersonaPrompt(force = false) {
     if (!force && cache.prompt && now - cache.loadedAt < cacheTtlMs) {
         return cache.prompt;
     }
-    const doc = await PersonaConfig.findOne().lean();
+    const doc = await prisma.personaConfig.findFirst();
     const prompt = buildPersonaPrompt(doc?.prompt);
     cache = { prompt, loadedAt: now };
     return prompt;
@@ -65,11 +65,11 @@ async function validatePersonaPrompt(prompt) {
 
 export async function savePersonaPrompt(prompt) {
     await validatePersonaPrompt(prompt);
-    const doc = await PersonaConfig.findOneAndUpdate(
-        {},
-        { prompt },
-        { upsert: true, new: true }
-    );
+    const doc = await prisma.personaConfig.upsert({
+        where: { id: 1 },
+        update: { prompt },
+        create: { id: 1, prompt },
+    });
     cache = { prompt: buildPersonaPrompt(doc.prompt), loadedAt: Date.now() };
     return cache.prompt;
 }
