@@ -1,5 +1,10 @@
-import { Trigger } from "../models/trigger.js";
+import removeAccentsLib from "remove-accents";
+import { prisma } from "../services/db.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
+
+function removeAccents(str) {
+    return removeAccentsLib(str || "");
+}
 
 function escapeRegex(text) {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -20,19 +25,11 @@ function buildMatcher(trigger) {
 
     return (text) => {
         if (!text) return false;
-        const normalizedText = normalize(
-            text,
-            trigger.normalizeAccents,
-            trigger.caseSensitive
-        );
+        const normalizedText = normalize(text, trigger.normalizeAccents, trigger.caseSensitive);
         for (const phrase of phrases) {
             if (!phrase) continue;
             if (trigger.matchType === "regex") {
-                const pattern = normalize(
-                    phrase,
-                    trigger.normalizeAccents,
-                    trigger.caseSensitive
-                );
+                const pattern = normalize(phrase, trigger.normalizeAccents, trigger.caseSensitive);
                 try {
                     const re = new RegExp(pattern, flags);
                     if (re.test(normalizedText)) return true;
@@ -40,11 +37,7 @@ function buildMatcher(trigger) {
                     continue;
                 }
             } else if (trigger.matchType === "exact") {
-                const needle = normalize(
-                    phrase,
-                    trigger.normalizeAccents,
-                    trigger.caseSensitive
-                );
+                const needle = normalize(phrase, trigger.normalizeAccents, trigger.caseSensitive);
                 if (trigger.wholeWord) {
                     const re = new RegExp(`\\b${escapeRegex(needle)}\\b`);
                     if (re.test(normalizedText)) return true;
@@ -52,11 +45,7 @@ function buildMatcher(trigger) {
                     if (normalizedText === needle) return true;
                 }
             } else if (trigger.matchType === "contains") {
-                const needle = normalize(
-                    phrase,
-                    trigger.normalizeAccents,
-                    trigger.caseSensitive
-                );
+                const needle = normalize(phrase, trigger.normalizeAccents, trigger.caseSensitive);
                 if (trigger.wholeWord) {
                     const re = new RegExp(`\\b${escapeRegex(needle)}\\b`);
                     if (re.test(normalizedText)) return true;
@@ -82,7 +71,6 @@ export function createTriggerProcessor({ log, isDbConnected }) {
     const normalizeJid = (jid) => {
         if (!jid) return "";
         const str = jid.toString();
-        // extrai apenas os dígitos para não depender do sufixo (@c.us/@lid)
         const digits = (str.split("@")[0] || "").replace(/\D/g, "");
         return digits;
     };
@@ -97,7 +85,7 @@ export function createTriggerProcessor({ log, isDbConnected }) {
         const now = Date.now();
         if (!force && now - cache.fetchedAt < cacheTtlMs) return cache.items;
         try {
-            const list = await Trigger.find({}).lean();
+            const list = await prisma.trigger.findMany();
             cache = { items: list, fetchedAt: now };
             return list;
         } catch (err) {
@@ -108,8 +96,9 @@ export function createTriggerProcessor({ log, isDbConnected }) {
 
     async function updateUseCount(triggerId) {
         try {
-            await Trigger.findByIdAndUpdate(triggerId, {
-                $inc: { triggeredCount: 1 },
+            await prisma.trigger.update({
+                where: { id: triggerId },
+                data: { triggeredCount: { increment: 1 } },
             });
         } catch (_) {}
     }
@@ -124,21 +113,16 @@ export function createTriggerProcessor({ log, isDbConnected }) {
             if (!triggers.length) return;
 
             const now = Date.now();
-            const senderId =
-                msg.author ||
-                msg.id?.participant ||
-                msg.from ||
-                "";
+            const senderId = msg.author || msg.id?.participant || msg.from || "";
             const senderNorm = normalizeJid(senderId);
+
             for (const trig of triggers) {
                 if (!trig.active) continue;
                 if (trig.expiresAt && new Date(trig.expiresAt).getTime() <= now) continue;
                 if (trig.maxUses && trig.triggeredCount >= trig.maxUses) continue;
                 if (Array.isArray(trig.allowedUsers) && trig.allowedUsers.length) {
                     const match = trig.allowedUsers.some(
-                        (u) =>
-                            u === senderId ||
-                            normalizeJid(u) === senderNorm
+                        (u) => u === senderId || normalizeJid(u) === senderNorm
                     );
                     if (!senderId || !match) continue;
                 }
@@ -151,7 +135,7 @@ export function createTriggerProcessor({ log, isDbConnected }) {
                     if (roll > trig.chancePercent) continue;
                 }
 
-                const globalKey = trig._id.toString();
+                const globalKey = trig.id;
                 const userId = senderId || msg.from || "unknown";
                 const userKey = `${globalKey}:${normalizeJid(userId)}`;
 
@@ -165,11 +149,7 @@ export function createTriggerProcessor({ log, isDbConnected }) {
                 }
 
                 let mediaUrl = trig.responseMediaUrl || "";
-                if (
-                    mediaUrl &&
-                    !mediaUrl.startsWith("http") &&
-                    process.env.BACKEND_PUBLIC_URL
-                ) {
+                if (mediaUrl && !mediaUrl.startsWith("http") && process.env.BACKEND_PUBLIC_URL) {
                     const base = process.env.BACKEND_PUBLIC_URL.replace(/\/+$/, "");
                     mediaUrl = `${base}/${mediaUrl.replace(/^\/+/, "")}`;
                 }
@@ -187,12 +167,12 @@ export function createTriggerProcessor({ log, isDbConnected }) {
                 };
 
                 try {
-                    await enqueueSendMessage(payload, { idempotencyKey: `${msg.id}-${trig._id}` });
+                    await enqueueSendMessage(payload, { idempotencyKey: `${msg.id}-${trig.id}` });
                     lastGlobalCooldown.set(globalKey, now);
                     lastUserCooldown.set(userKey, now);
-                    updateUseCount(trig._id);
+                    updateUseCount(trig.id);
                     cache.fetchedAt = 0;
-                    break; // stop after first trigger fired
+                    break;
                 } catch (err) {
                     log(`Erro ao enfileirar resposta do trigger: ${err.message}`, "error");
                 }

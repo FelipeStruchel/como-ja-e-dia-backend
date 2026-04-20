@@ -7,7 +7,7 @@ function removeAccents(str) {
 export function createCommandProcessor({
     log,
     generateAIAnalysis,
-    AnalysisLog,
+    prisma,
     MAX_MESSAGE_LENGTH,
     ANALYSE_COOLDOWN_SECONDS,
     isDbConnected,
@@ -192,18 +192,20 @@ export function createCommandProcessor({
             analysis = await generateAIAnalysis(toAnalyze);
             if (isDbConnected && isDbConnected()) {
                 try {
-                    await AnalysisLog.create({
-                        user: userId,
-                        chatId: msg.from,
-                        requestedN: n,
-                        analyzedCount: toAnalyze.length,
-                        messages: toAnalyze.map((m, i) => ({
-                            idx: i + 1,
-                            sender: m.senderName || m.author || "desconhecido",
-                            text: (m.body || "").slice(0, 1000),
-                        })),
-                        result: analysis,
-                        durationMs: Date.now() - start,
+                    await prisma.analysisLog.create({
+                        data: {
+                            user: userId,
+                            chatId: msg.from,
+                            requestedN: n,
+                            analyzedCount: toAnalyze.length,
+                            messages: toAnalyze.map((m, i) => ({
+                                idx: i + 1,
+                                sender: m.senderName || m.author || "desconhecido",
+                                text: (m.body || "").slice(0, 1000),
+                            })),
+                            result: analysis,
+                            durationMs: Date.now() - start,
+                        },
                     });
                 } catch (createErr) {
                     log(`Erro ao salvar AnalysisLog: ${createErr.message}`, "error");
