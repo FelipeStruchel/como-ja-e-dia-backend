@@ -1,5 +1,5 @@
 import { requireAuth } from "../middleware/auth.js";
-import { Schedule } from "../models/schedule.js";
+import { prisma } from "../services/db.js";
 import { clearRepeat, registerRepeat, resyncSchedules } from "../services/scheduledJobs.js";
 
 function parseSchedule(body) {
@@ -29,8 +29,7 @@ function parseSchedule(body) {
     safe.includeIntro = body.includeIntro !== undefined ? !!body.includeIntro : true;
     safe.includeRandomPool =
         body.includeRandomPool !== undefined ? !!body.includeRandomPool : true;
-    safe.announceEvents =
-        body.announceEvents !== undefined ? !!body.announceEvents : false;
+    safe.announceEvents = body.announceEvents !== undefined ? !!body.announceEvents : false;
     safe.personaPrompt = (body.personaPrompt || "").toString();
     safe.useCronOverride = !!body.useCronOverride;
     safe.cron = (body.cron || "").toString().trim();
@@ -43,7 +42,6 @@ function parseSchedule(body) {
         : [];
     safe.active = body.active !== undefined ? !!body.active : true;
 
-    // Se não usar cron override, monta cron a partir de hora/dias
     if (!safe.useCronOverride) {
         const [hh = "06", mm = "00"] = safe.time.split(":");
         const days =
@@ -58,7 +56,7 @@ function parseSchedule(body) {
 export function registerScheduleRoutes(app) {
     app.get("/schedules", requireAuth, async (_req, res) => {
         try {
-            const list = await Schedule.find().sort({ createdAt: -1 }).lean();
+            const list = await prisma.schedule.findMany({ orderBy: { createdAt: "desc" } });
             res.json(list);
         } catch (err) {
             res.status(500).json({ error: err.message || "Erro ao listar schedules" });
@@ -69,7 +67,7 @@ export function registerScheduleRoutes(app) {
         try {
             const payload = parseSchedule(req.body || {});
             if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
-            const created = await Schedule.create(payload);
+            const created = await prisma.schedule.create({ data: payload });
             await registerRepeat(created);
             res.status(201).json(created);
         } catch (err) {
@@ -81,13 +79,15 @@ export function registerScheduleRoutes(app) {
         try {
             const payload = parseSchedule(req.body || {});
             if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
-            const existing = await Schedule.findById(req.params.id);
+            const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
             if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });
             await clearRepeat(existing);
-            Object.assign(existing, payload);
-            await existing.save();
-            await registerRepeat(existing);
-            res.json(existing);
+            const updated = await prisma.schedule.update({
+                where: { id: req.params.id },
+                data: payload,
+            });
+            await registerRepeat(updated);
+            res.json(updated);
         } catch (err) {
             res.status(400).json({ error: err.message || "Erro ao atualizar schedule" });
         }
@@ -95,10 +95,10 @@ export function registerScheduleRoutes(app) {
 
     app.delete("/schedules/:id", requireAuth, async (req, res) => {
         try {
-            const existing = await Schedule.findById(req.params.id);
+            const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
             if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });
             await clearRepeat(existing);
-            await existing.deleteOne();
+            await prisma.schedule.delete({ where: { id: req.params.id } });
             res.json({ success: true });
         } catch (err) {
             res.status(500).json({ error: err.message || "Erro ao remover schedule" });
