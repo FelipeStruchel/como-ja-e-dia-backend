@@ -1,9 +1,7 @@
 import { Queue, Worker } from "bullmq";
 import moment from "moment-timezone";
 import path from "path";
-import { Schedule } from "../models/schedule.js";
-import { Phrase } from "../models/phrase.js";
-import { Event } from "../models/event.js";
+import { prisma } from "./db.js";
 import { generateAICaption } from "./ai.js";
 import { enqueueSendMessage } from "./sendQueue.js";
 import { log } from "./logger.js";
@@ -18,7 +16,6 @@ const queueName = "scheduled-jobs";
 const schedQueue = new Queue(queueName, { connection });
 
 function buildRepeatOpts(schedule) {
-    // monta cron a partir de hora/dia quando não há override
     let cron = schedule.cron || "";
     if (!schedule.useCronOverride) {
         const [hh = "06", mm = "00"] = (schedule.time || "06:00").split(":");
@@ -48,16 +45,17 @@ async function buildEventsContext(tz) {
     const start = now.clone().startOf("day");
     const end = now.clone().endOf("day");
 
-    const eventsToday = await Event.find({
-        date: { $gte: start.toDate(), $lte: end.toDate() },
-    })
-        .sort({ date: 1 })
-        .lean();
+    const eventsToday = await prisma.event.findMany({
+        where: { date: { gte: start.toDate(), lte: end.toDate() } },
+        orderBy: { date: "asc" },
+    });
 
-    const nextEvent = await Event.find({ date: { $gt: end.toDate() } })
-        .sort({ date: 1 })
-        .limit(1)
-        .lean();
+    const nextEvents = await prisma.event.findMany({
+        where: { date: { gt: end.toDate() } },
+        orderBy: { date: "asc" },
+        take: 1,
+    });
+    const nextEvent = nextEvents[0] || null;
 
     const names = eventsToday.map((e) => e.name);
     let eventsTodayDetails = null;
@@ -72,11 +70,10 @@ async function buildEventsContext(tz) {
 
     let nearestDateStr = null;
     let countdown = null;
-    if (nextEvent && nextEvent.length) {
-        const ev = nextEvent[0];
-        const m = moment.tz(ev.date, tz);
-        names.push(ev.name);
-        nearestDateStr = `${ev.name} em ${m.format("DD/MM/YYYY [às] HH:mm")}`;
+    if (nextEvent) {
+        const m = moment.tz(nextEvent.date, tz);
+        names.push(nextEvent.name);
+        nearestDateStr = `${nextEvent.name} em ${m.format("DD/MM/YYYY [às] HH:mm")}`;
         const diff = moment.duration(m.diff(now));
         countdown = {
             days: Math.max(0, Math.floor(diff.asDays())),
@@ -99,7 +96,7 @@ export async function clearRepeat(schedule) {
     try {
         await schedQueue.removeRepeatableByKey(schedule.repeatJobKey);
     } catch (err) {
-        log(`Erro ao remover repeatable ${schedule._id}: ${err.message}`, "warn");
+        log(`Erro ao remover repeatable ${schedule.id}: ${err.message}`, "warn");
     }
 }
 
@@ -108,28 +105,31 @@ export async function registerRepeat(schedule) {
     const repeat = buildRepeatOpts(schedule);
     const job = await schedQueue.add(
         "run-schedule",
-        { scheduleId: schedule._id.toString() },
+        { scheduleId: schedule.id },
         {
             repeat,
             removeOnComplete: true,
             removeOnFail: 20,
-            jobId: `schedule:${schedule._id}`,
+            jobId: `schedule:${schedule.id}`,
         }
     );
-    schedule.repeatJobKey = job?.repeatJobKey || "";
-    await schedule.save();
+    const repeatJobKey = job?.repeatJobKey || "";
+    await prisma.schedule.update({
+        where: { id: schedule.id },
+        data: { repeatJobKey },
+    });
     return job;
 }
 
 export async function resyncSchedules() {
-    const all = await Schedule.find({}).lean();
+    const all = await prisma.schedule.findMany();
     for (const sch of all) {
         if (!sch.repeatJobKey) continue;
         try {
             await schedQueue.removeRepeatableByKey(sch.repeatJobKey);
         } catch (_) {}
     }
-    const docs = await Schedule.find({ active: true });
+    const docs = await prisma.schedule.findMany({ where: { active: true } });
     for (const doc of docs) {
         await registerRepeat(doc);
     }
@@ -147,7 +147,7 @@ function shouldRunToday(schedule, now) {
 }
 
 async function processScheduleJob(scheduleId) {
-    const schedule = await Schedule.findById(scheduleId).lean();
+    const schedule = await prisma.schedule.findUnique({ where: { id: scheduleId } });
     if (!schedule || !schedule.active) return;
     const now = moment.tz(schedule.timezone || "America/Sao_Paulo");
     if (!shouldRunToday(schedule, now)) return;
@@ -182,23 +182,17 @@ async function processScheduleJob(scheduleId) {
     }
 
     const payloads = [];
-
+    const groupId =
+        process.env.GROUP_ID ||
+        process.env.ALLOWED_PING_GROUP ||
+        "120363339314665620@g.us";
     const mediaUrl = schedule.mediaUrl || "";
+
     if (schedule.type === "text") {
-        payloads.push({
-            groupId:
-                process.env.GROUP_ID ||
-                process.env.ALLOWED_PING_GROUP ||
-                "120363339314665620@g.us",
-            type: "text",
-            content: schedule.textContent || "",
-        });
+        payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
     } else {
         payloads.push({
-            groupId:
-                process.env.GROUP_ID ||
-                process.env.ALLOWED_PING_GROUP ||
-                "120363339314665620@g.us",
+            groupId,
             type: schedule.type,
             content: mediaUrl,
             caption: caption || undefined,
@@ -207,51 +201,31 @@ async function processScheduleJob(scheduleId) {
 
     if (schedule.includeRandomPool !== false) {
         const randomMedia = await getRandomMedia();
-        const randomTextDoc = await Phrase.aggregate([{ $sample: { size: 1 } }]);
+        const randomTextRows = await prisma.$queryRaw`
+            SELECT * FROM "Phrase" ORDER BY RANDOM() LIMIT 1
+        `;
+        const randomTextDoc = Array.isArray(randomTextRows) ? randomTextRows[0] : null;
         const candidates = [];
         if (randomMedia) candidates.push({ kind: "media", data: randomMedia });
-        if (randomTextDoc && randomTextDoc.length) {
+        if (randomTextDoc) {
             candidates.push({
                 kind: "text",
-                data: {
-                    type: "text",
-                    content: randomTextDoc[0].text || "",
-                    id: randomTextDoc[0]._id ? randomTextDoc[0]._id.toString() : null,
-                },
+                data: { type: "text", content: randomTextDoc.text || "", id: randomTextDoc.id || null },
             });
         }
         if (candidates.length) {
             const choice = candidates[Math.floor(Math.random() * candidates.length)];
             const isText = choice.kind === "text" || choice.data.type === "text";
-            const typeLabel = isText
-                ? "Frase"
-                : choice.data.type === "image"
-                ? "Foto"
-                : "Vídeo";
+            const typeLabel = isText ? "Frase" : choice.data.type === "image" ? "Foto" : "Vídeo";
             if (schedule.includeIntro) {
-                payloads.push({
-                    groupId:
-                        process.env.GROUP_ID ||
-                        process.env.ALLOWED_PING_GROUP ||
-                        "120363339314665620@g.us",
-                    type: "text",
-                    content: `${typeLabel} do dia:`,
-                });
+                payloads.push({ groupId, type: "text", content: `${typeLabel} do dia:` });
             }
             if (isText) {
                 payloads.push({
-                    groupId:
-                        process.env.GROUP_ID ||
-                        process.env.ALLOWED_PING_GROUP ||
-                        "120363339314665620@g.us",
+                    groupId,
                     type: "text",
                     content: choice.data.content || "",
-                    cleanup: choice.data.id
-                        ? {
-                              type: "phrase",
-                              id: choice.data.id,
-                          }
-                        : undefined,
+                    cleanup: choice.data.id ? { type: "phrase", id: choice.data.id } : undefined,
                 });
             } else {
                 const baseInternal = (
@@ -261,17 +235,10 @@ async function processScheduleJob(scheduleId) {
                 ).replace(/\/+$/, "");
                 const filename = path.basename(choice.data.path);
                 payloads.push({
-                    groupId:
-                        process.env.GROUP_ID ||
-                        process.env.ALLOWED_PING_GROUP ||
-                        "120363339314665620@g.us",
+                    groupId,
                     type: choice.data.type,
                     content: `${baseInternal}/media/${choice.data.type}/${filename}`,
-                    cleanup: {
-                        type: choice.data.type,
-                        filename,
-                        scope: "media",
-                    },
+                    cleanup: { type: choice.data.type, filename, scope: "media" },
                 });
             }
         }
