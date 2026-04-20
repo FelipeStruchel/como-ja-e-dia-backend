@@ -35,7 +35,7 @@ export function registerAuthRoutes(app) {
             const { user, token } = await authenticateUser({ email, password });
             res.json({
                 token,
-                user: { id: user._id, email: user.email, name: user.name, status: user.status },
+                user: { id: user.id, email: user.email, name: user.name, status: user.status },
             });
         } catch (err) {
             res.status(401).json({ error: err.message || "Credenciais inválidas" });
@@ -52,7 +52,7 @@ export function registerAuthRoutes(app) {
             if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
             res.json({
                 user: {
-                    id: user._id,
+                    id: user.id,
                     email: user.email,
                     name: user.name,
                     status: user.status,
@@ -72,7 +72,7 @@ export function registerAuthRoutes(app) {
             const users = await listUsers({ status });
             res.json(
                 users.map((u) => ({
-                    id: u._id,
+                    id: u.id,
                     email: u.email,
                     name: u.name,
                     status: u.status,
