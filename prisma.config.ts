@@ -6,6 +6,9 @@ const connectionString = process.env.DATABASE_URL ?? "postgresql://postgres:post
 export default defineConfig({
   earlyAccess: true,
   schema: "prisma/schema.prisma",
+  datasource: {
+    url: connectionString,
+  },
   migrate: {
     async adapter() {
       const { Pool } = await import("pg");
