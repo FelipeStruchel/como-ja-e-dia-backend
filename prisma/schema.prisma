@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  pending
+  approved
+  blocked
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String     @default("")
+  passwordHash String
+  status       UserStatus @default(pending)
+  createdAt    DateTime   @default(now())
+}
+
+model Event {
+  id          String    @id @default(cuid())
+  name        String
+  date        DateTime
+  createdAt   DateTime  @default(now())
+  announced   Boolean   @default(false)
+  announcedAt DateTime?
+  claimedBy   String?
+  claimedAt   DateTime?
+}
+
+model Phrase {
+  id        String   @id @default(cuid())
+  text      String
+  createdAt DateTime @default(now())
+}
+
+model Trigger {
+  id                     String    @id @default(cuid())
+  name                   String    @default("")
+  phrases                String[]
+  matchType              String    @default("exact")
+  caseSensitive          Boolean   @default(false)
+  normalizeAccents       Boolean   @default(true)
+  wholeWord              Boolean   @default(true)
+  responseType           String    @default("text")
+  responseText           String    @default("")
+  responseMediaUrl       String    @default("")
+  replyMode              String    @default("reply")
+  mentionSender          Boolean   @default(false)
+  chancePercent          Float     @default(100)
+  expiresAt              DateTime?
+  maxUses                Int?
+  triggeredCount         Int       @default(0)
+  cooldownSeconds        Int       @default(0)
+  cooldownPerUserSeconds Int       @default(0)
+  active                 Boolean   @default(true)
+  allowedUsers           String[]
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+}
+
+model Schedule {
+  id                String    @id @default(cuid())
+  name              String
+  kind              String    @default("greeting")
+  type              String
+  mediaUrl          String    @default("")
+  textContent       String    @default("")
+  captionMode       String    @default("auto")
+  customCaption     String    @default("")
+  includeIntro      Boolean   @default(true)
+  includeRandomPool Boolean   @default(true)
+  announceEvents    Boolean   @default(false)
+  personaPrompt     String    @default("")
+  cron              String    @default("")
+  useCronOverride   Boolean   @default(false)
+  time              String    @default("06:00")
+  timezone          String    @default("America/Sao_Paulo")
+  startDate         DateTime?
+  endDate           DateTime?
+  daysOfWeek        Int[]
+  active            Boolean   @default(true)
+  repeatJobKey      String    @default("")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model GroupContext {
+  id          String   @id @default(cuid())
+  groupId     String   @unique
+  subject     String   @default("")
+  description String   @default("")
+  members     Json     @default("[]")
+  fetchedAt   DateTime @default(now())
+}
+
+model PersonaConfig {
+  id        Int      @id @default(autoincrement())
+  prompt    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AnalysisLog {
+  id            String   @id @default(cuid())
+  user          String
+  chatId        String?
+  requestedN    Int      @default(0)
+  analyzedCount Int      @default(0)
+  messages      Json     @default("[]")
+  result        String?
+  error         String?
+  durationMs    Int      @default(0)
+  createdAt     DateTime @default(now())
+}
+
+model LogEntry {
+  id        String   @id @default(cuid())
+  source    String   @default("backend")
+  level     String   @default("info")
+  message   String
+  meta      Json?
+  createdAt DateTime @default(now())
+}
