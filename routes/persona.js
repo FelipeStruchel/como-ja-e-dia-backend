@@ -1,12 +1,12 @@
 import { requireAuth } from "../middleware/auth.js";
 import { getPersonaPrompt, savePersonaPrompt, getPersonaCache } from "../services/personaConfig.js";
 import { AI_PERSONA_DEFAULT } from "../services/personaConstants.js";
-import { PersonaConfig } from "../models/personaConfig.js";
+import { prisma } from "../services/db.js";
 
 export function registerPersonaRoutes(app) {
     app.get("/persona", requireAuth, async (_req, res) => {
         try {
-            const doc = await PersonaConfig.findOne().lean();
+            const doc = await prisma.personaConfig.findFirst();
             const prompt = doc?.prompt || AI_PERSONA_DEFAULT.trim();
             res.json({
                 prompt,

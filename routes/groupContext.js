@@ -1,9 +1,8 @@
 import { requireAuth } from "../middleware/auth.js";
 import { enqueueGroupContextJob } from "../services/groupContextQueue.js";
-import { GroupContext } from "../models/groupContext.js";
+import { prisma } from "../services/db.js";
 
 export function registerGroupContextRoutes(app) {
-    // Admin: enfileira refresh de contexto para um groupId
     app.post("/context/refresh", requireAuth, async (req, res) => {
         try {
             const groupId =
@@ -20,7 +19,6 @@ export function registerGroupContextRoutes(app) {
         }
     });
 
-    // Ingest: chamado pelo worker para salvar contexto
     app.post("/context/ingest", async (req, res) => {
         try {
             const token = req.headers["x-context-token"] || req.query.token;
@@ -32,14 +30,15 @@ export function registerGroupContextRoutes(app) {
             if (!groupId) return res.status(400).json({ error: "groupId é obrigatório" });
 
             const payload = {
-                groupId,
                 subject: subject || "",
                 description: description || "",
                 members: Array.isArray(members) ? members : [],
                 fetchedAt: new Date(),
             };
-            await GroupContext.findOneAndUpdate({ groupId }, payload, {
-                upsert: true,
+            await prisma.groupContext.upsert({
+                where: { groupId },
+                update: payload,
+                create: { groupId, ...payload },
             });
             res.json({ message: "Contexto salvo", groupId });
         } catch (err) {
@@ -47,10 +46,15 @@ export function registerGroupContextRoutes(app) {
         }
     });
 
-    // Consulta (opcional)
     app.get("/context/:groupId", requireAuth, async (req, res) => {
-        const doc = await GroupContext.findOne({ groupId: req.params.groupId }).lean();
-        if (!doc) return res.status(404).json({ error: "Contexto não encontrado" });
-        res.json(doc);
+        try {
+            const doc = await prisma.groupContext.findUnique({
+                where: { groupId: req.params.groupId },
+            });
+            if (!doc) return res.status(404).json({ error: "Contexto não encontrado" });
+            res.json(doc);
+        } catch (err) {
+            res.status(500).json({ error: err.message || "Erro ao buscar contexto" });
+        }
     });
 }
