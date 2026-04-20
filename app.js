@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
+import moment from "moment-timezone";
+import "moment/locale/pt-br.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerPhraseRoutes } from "./routes/frases.js";
 import { registerMediaRoutes } from "./routes/media.js";
@@ -12,11 +14,8 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerTriggerRoutes } from "./routes/triggers.js";
 import { registerLogIngestRoute } from "./routes/logIngest.js";
 import { registerLogRoutes } from "./routes/logs.js";
-import { connectDb } from "./services/db.js";
+import { prisma } from "./services/db.js";
 import { enqueueSendMessage } from "./services/sendQueue.js";
-import { Event } from "./models/event.js";
-import { AnalysisLog } from "./models/analysisLog.js";
-import { Phrase } from "./models/phrase.js";
 import { log } from "./services/logger.js";
 import { generateAIAnalysis } from "./services/ai.js";
 import { MEDIA_TYPES, saveMedia, listAllMedia } from "./mediaManager.js";
@@ -34,28 +33,32 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Respeitar X-Forwarded-* (necessário atrás de proxy para IP real)
 app.set("trust proxy", true);
-
-// Middlewares
 app.use(cors());
 app.use(express.json());
 app.use(mediaStaticMiddleware({ rootDir: __dirname }));
 
-// Conectar DB
-const { dbConnected, mongoose, moment } = await connectDb(log);
+// Conectar ao banco
+let _dbConnected = false;
+const isDbConnected = () => _dbConnected;
 
-const isDbConnected = () => dbConnected();
+try {
+    await prisma.$connect();
+    _dbConnected = true;
+    log("Conectado ao PostgreSQL com sucesso", "success");
+} catch (err) {
+    log(`Erro ao conectar ao PostgreSQL: ${err.message}`, "error");
+}
 
 // Registrar rotas
 registerEventRoutes(app, {
-    Event,
+    prisma,
     isDbConnected,
     tz: moment.tz,
     moment,
 });
 registerAuthRoutes(app);
-registerPhraseRoutes(app, { MAX_MESSAGE_LENGTH: 4096, Phrase });
+registerPhraseRoutes(app, { MAX_MESSAGE_LENGTH: 4096, prisma });
 registerMediaRoutes(app, { MEDIA_TYPES, saveMedia, listAllMedia });
 registerConfessionRoutes(app, {
     MAX_TEXT_LENGTH: parseInt(process.env.MAX_TEXT_LENGTH || "1000", 10),
@@ -73,23 +76,26 @@ registerGroupContextRoutes(app);
 registerPersonaRoutes(app);
 registerScheduleRoutes(app);
 
-app.get("/db-status", (req, res) => {
-    res.json({ connected: isDbConnected() });
+app.get("/db-status", async (_req, res) => {
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        res.json({ connected: true });
+    } catch {
+        res.json({ connected: false });
+    }
 });
 
-// Consumidor de mensagens recebidas (fila -> processamento -> fila de envio)
 const processIncoming = createIncomingProcessor({
     log,
     isDbConnected,
     generateAIAnalysis,
-    AnalysisLog,
+    prisma,
     enqueueSendMessage,
 });
 startIncomingConsumer(processIncoming);
 startScheduledWorker();
 resyncSchedules();
 
-// Start server
 app.listen(PORT, () => {
     log(`API rodando na porta ${PORT}`, "success");
 });
