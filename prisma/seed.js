@@ -1,8 +1,12 @@
 import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
+import pg from 'pg'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'crypto'
 
-const prisma = new PrismaClient()
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+const adapter = new PrismaPg(pool)
+const prisma = new PrismaClient({ adapter })
 
 async function main() {
   const count = await prisma.user.count()
