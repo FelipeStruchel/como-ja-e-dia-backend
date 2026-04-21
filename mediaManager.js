@@ -1,9 +1,6 @@
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import WhatsAppWebPkg from "whatsapp-web.js";
-const { MessageMedia } = WhatsAppWebPkg;
-
 // Configurações
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const MAX_FOLDER_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
@@ -158,25 +155,11 @@ async function removeMedia(filePath) {
     }
 }
 
-// Preparar mídia para envio no WhatsApp
-async function prepareMediaForWhatsApp(media) {
-    if (media.type === MEDIA_TYPES.TEXT) {
-        const content = await fs.readFile(media.path, "utf8");
-        return {
-            type: "text",
-            content,
-        };
-    } else {
-        return MessageMedia.fromFilePath(media.path);
-    }
-}
-
 export {
     MEDIA_TYPES,
     saveMedia,
     getRandomMedia,
     removeMedia,
-    prepareMediaForWhatsApp,
     checkFileSize,
     checkFolderSize,
     listAllMedia,
