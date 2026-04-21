@@ -25,6 +25,7 @@ import { mediaStaticMiddleware } from "./services/staticMedia.js";
 import { registerGroupContextRoutes } from "./routes/groupContext.js";
 import { registerPersonaRoutes } from "./routes/persona.js";
 import { registerScheduleRoutes } from "./routes/schedules.js";
+import { registerWhatsAppSessionRoutes } from "./routes/whatsappSession.js";
 import { startScheduledWorker, resyncSchedules } from "./services/scheduledJobs.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -75,6 +76,7 @@ registerLogIngestRoute(app);
 registerGroupContextRoutes(app);
 registerPersonaRoutes(app);
 registerScheduleRoutes(app);
+registerWhatsAppSessionRoutes(app, { prisma });
 
 app.get("/db-status", async (_req, res) => {
     try {

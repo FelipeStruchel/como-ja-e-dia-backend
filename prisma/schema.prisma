@@ -126,3 +126,9 @@ model LogEntry {
   meta      Json?
   createdAt DateTime @default(now())
 }
+
+model WhatsAppSession {
+  id        String   @id
+  data      Bytes
+  updatedAt DateTime @updatedAt
+}
