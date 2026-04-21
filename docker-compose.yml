@@ -20,6 +20,12 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - bot-net
+
   backend:
     build: .
     restart: unless-stopped
@@ -40,6 +46,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
 
 networks:
   bot-net:
