@@ -189,8 +189,8 @@ export function createTriggerProcessor({
         }
 
         let mediaUrl = trig.responseMediaUrl || "";
-        if (mediaUrl && !mediaUrl.startsWith("http") && process.env.BACKEND_PUBLIC_URL) {
-          const base = process.env.BACKEND_PUBLIC_URL.replace(/\/+$/, "");
+        if (mediaUrl && !mediaUrl.startsWith("http")) {
+          const base = (process.env.MEDIA_BASE_URL || process.env.BACKEND_PUBLIC_URL || "http://backend:3000").replace(/\/+$/, "");
           mediaUrl = `${base}/${mediaUrl.replace(/^\/+/, "")}`;
         }
 
