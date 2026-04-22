@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import moment from "moment-timezone";
-import "moment/locale/pt-br.js";
+import "moment";
 import { log } from "../services/logger.js";
 import { getPersonaPrompt } from "./personaConfig.js";
 import { AI_PERSONA_DEFAULT, AI_PERSONA_GUARDS } from "./personaConstants.js";
