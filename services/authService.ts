@@ -1,6 +1,5 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { UserStatus } from "@prisma/client";
 import { prisma } from "./db.js";
 
 const DEFAULT_JWT_TTL = "7d";
