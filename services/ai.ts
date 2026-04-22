@@ -30,7 +30,7 @@ export async function callGeminiChat(
   temperatureOverride: string | null = null
 ): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = modelOverride || process.env.GEMINI_MODEL || "gemini-2.5-flash-preview";
+  const model = modelOverride || process.env.GEMINI_MODEL || "gemini-3-flash-preview";
 
   if (!apiKey) {
     log("GEMINI_API_KEY não configurada, pulando chamada à Gemini", "warning");
@@ -192,7 +192,7 @@ export async function generateAICaption({
     { role: "user", content: userMsgParts.join("\n") },
   ];
 
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-preview";
+  const model = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
   const temp = process.env.GEMINI_TEMPERATURE || "0.9";
   return callGeminiChat(msgs, 60000, null, model, temp);
 }
@@ -251,7 +251,7 @@ export async function generateAIAnalysis(
       "1024",
     10
   );
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-preview";
+  const model = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
   const temp = process.env.GEMINI_TEMPERATURE || "0.9";
   return callGeminiChat(msgs, 60000, analyseTokens, model, temp);
 }
