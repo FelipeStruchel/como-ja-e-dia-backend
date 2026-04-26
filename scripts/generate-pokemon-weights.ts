@@ -10,12 +10,18 @@ const CONCURRENCY = 20
 
 interface Weight { id: number; captureRate: number }
 
-async function fetchCaptureRate(id: number): Promise<Weight> {
-  const res = await axios.get<{ capture_rate: number }>(
-    `https://pokeapi.co/api/v2/pokemon-species/${id}`,
-    { timeout: 15_000 }
-  )
-  return { id, captureRate: res.data.capture_rate }
+async function fetchCaptureRate(id: number, attempts = 3): Promise<Weight> {
+  try {
+    const res = await axios.get<{ capture_rate: number }>(
+      `https://pokeapi.co/api/v2/pokemon-species/${id}`,
+      { timeout: 15_000 }
+    )
+    return { id, captureRate: res.data.capture_rate }
+  } catch (err) {
+    if (attempts <= 1) throw err
+    await new Promise((r) => setTimeout(r, 1000 * (4 - attempts)))
+    return fetchCaptureRate(id, attempts - 1)
+  }
 }
 
 const weights: Weight[] = []
