@@ -110,11 +110,16 @@ export async function executeDrop(groupId: string): Promise<void> {
   if (dbEntry?.aiCaption) {
     aiCaption = dbEntry.aiCaption
   } else {
-    aiCaption = await generateDropCaption(pokemon)
-    await prisma.pokemonCache.update({
-      where: { id: pokemonId },
-      data: { aiCaption },
-    })
+    try {
+      aiCaption = await generateDropCaption(pokemon)
+      await prisma.pokemonCache.update({
+        where: { id: pokemonId },
+        data: { aiCaption },
+      })
+    } catch (err) {
+      log(`Gemini caption failed for #${pokemonId}: ${(err as Error).message}`, 'warn')
+      aiCaption = '✨ Uma presença misteriosa emerge das sombras...'
+    }
   }
 
   const drop = await prisma.pokemonDrop.create({
