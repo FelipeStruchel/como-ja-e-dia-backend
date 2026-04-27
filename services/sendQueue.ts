@@ -16,7 +16,8 @@ const queue = new Queue(queueName, { connection });
 
 export interface SendPayload {
   groupId?: string;
-  type: "text" | "image" | "video";
+  type: "text" | "image" | "video" | "pokemon_drop";
+  dropId?: string;
   content: string;
   caption?: string;
   replyTo?: string;
@@ -47,6 +48,7 @@ export async function enqueueSendMessage(
     replyTo: payload.replyTo,
     mentions: payload.mentions || [],
     cleanup: payload.cleanup,
+    dropId: payload.dropId,
   };
   const jobOpts = {
     attempts: opts.attempts || 3,

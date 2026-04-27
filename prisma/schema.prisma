@@ -126,3 +126,23 @@ model LogEntry {
   meta      Json?
   createdAt DateTime @default(now())
 }
+
+model PokemonCache {
+  id          Int      @id
+  name        String
+  imageUrl    String
+  types       String[]
+  captureRate Int
+  aiCaption   String?
+  cachedAt    DateTime @default(now())
+}
+
+model PokemonDrop {
+  id         String    @id @default(cuid())
+  groupId    String
+  pokemonId  Int
+  messageId  String?
+  droppedAt  DateTime  @default(now())
+  capturedBy String?
+  capturedAt DateTime?
+}
