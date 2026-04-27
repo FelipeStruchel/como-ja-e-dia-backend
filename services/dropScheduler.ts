@@ -5,10 +5,16 @@ import { executeDrop } from './dropService.js'
 import { calculateDropProbability, DROP_CONFIG } from './dropConstants.js'
 import { log } from './logger.js'
 
-const connection = {
-  host: process.env.REDIS_HOST || 'redis',
-  port: parseInt(process.env.REDIS_PORT || '6379', 10),
-}
+const redisUrl = process.env.REDIS_URL
+const redisHost = process.env.REDIS_HOST || 'redis'
+const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10)
+
+const connection =
+  redisHost || redisPort
+    ? { host: redisHost || 'redis', port: redisPort || 6379 }
+    : redisUrl
+      ? { url: redisUrl }
+      : { host: 'redis', port: 6379 }
 
 const dropQueue = new Queue(DROP_CONFIG.QUEUE_NAME, { connection })
 
