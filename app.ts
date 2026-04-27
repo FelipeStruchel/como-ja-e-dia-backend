@@ -27,6 +27,8 @@ import { registerPersonaRoutes } from "./routes/persona.js";
 import { registerScheduleRoutes } from "./routes/schedules.js";
 import { startScheduledWorker, resyncSchedules } from "./services/scheduledJobs.js";
 import { registerWhatsAppQrRoutes } from "./routes/whatsappQr.js";
+import { registerDropRoutes } from "./routes/drops.js";
+import { startDropScheduler } from "./services/dropScheduler.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,6 +73,7 @@ registerGroupContextRoutes(app);
 registerPersonaRoutes(app);
 registerScheduleRoutes(app);
 registerWhatsAppQrRoutes(app);
+registerDropRoutes(app);
 
 app.get("/db-status", async (_req, res) => {
   try {
@@ -91,6 +94,7 @@ const processIncoming = createIncomingProcessor({
 startIncomingConsumer(processIncoming);
 startScheduledWorker();
 resyncSchedules();
+startDropScheduler();
 
 app.listen(PORT, () => {
   log(`API rodando na porta ${PORT}`, "success");
