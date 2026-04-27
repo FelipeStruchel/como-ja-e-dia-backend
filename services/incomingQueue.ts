@@ -18,8 +18,18 @@ export function startIncomingConsumer(
   const worker = new Worker(
     queueName,
     async (job) => {
-      const payload = job.data || {};
-      await processor(payload);
+      const payload = job.data || {}
+      const from = (payload as Record<string, unknown>).from as string | undefined
+      if (from?.endsWith('@g.us')) {
+        const { getRedis } = await import('./redis.js')
+        const redis = getRedis()
+        const key = `activity:${from}`
+        const count = await redis.incr(key)
+        if (count === 1) {
+          await redis.expire(key, parseInt(process.env.DROP_ACTIVITY_WINDOW_SEC || '600', 10))
+        }
+      }
+      await processor(payload)
     },
     { connection }
   );
