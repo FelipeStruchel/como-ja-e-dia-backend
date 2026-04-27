@@ -65,7 +65,7 @@ export function registerDropRoutes(app: Express): void {
           groupId,
           content: `🎉 @${number} capturou um Pokémon misterioso!`,
           mentions: [capturedBy],
-        }).catch(() => undefined)
+        }).catch((qErr: Error) => log(`Fallback enqueue failed: ${qErr.message}`, 'error'))
         log(`Erro na mensagem de captura: ${(err as Error).message}`, 'error')
       }
     })
