@@ -54,7 +54,7 @@ async function generateDropCaption(pokemon: {
       },
     ],
     30_000,
-    100
+    null
   )
   return result ?? '✨ Uma presença misteriosa emerge das sombras...'
 }
@@ -73,7 +73,7 @@ export async function generateCaptureMessage(
       },
     ],
     30_000,
-    100
+    null
   )
   return result ?? `🎉 Incrível! *${pokemonName}* foi capturado!`
 }
