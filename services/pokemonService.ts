@@ -52,10 +52,17 @@ export async function fetchAndCachePokemon(id: number): Promise<PokemonData> {
 
   // L3: PokeAPI
   log(`Buscando Pokémon #${id} na PokeAPI`, 'info')
-  const [pokemonRes, speciesRes] = await Promise.all([
-    axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${id}`, { timeout: 15_000 }),
-    axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${id}`, { timeout: 15_000 }),
-  ])
+  let pokemonRes: Awaited<ReturnType<typeof axios.get<PokeApiPokemon>>>
+  let speciesRes: Awaited<ReturnType<typeof axios.get<PokeApiSpecies>>>
+  try {
+    ;[pokemonRes, speciesRes] = await Promise.all([
+      axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${id}`, { timeout: 15_000 }),
+      axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${id}`, { timeout: 15_000 }),
+    ])
+  } catch (err) {
+    log(`Falha ao buscar Pokémon #${id} na PokeAPI: ${(err as Error).message}`, 'error')
+    throw err
+  }
 
   const pokemon = pokemonRes.data
   const species = speciesRes.data
@@ -68,7 +75,7 @@ export async function fetchAndCachePokemon(id: number): Promise<PokemonData> {
   const data: PokemonData = {
     id: pokemon.id,
     name: ptName,
-    imageUrl: pokemon.sprites.other['official-artwork'].front_default,
+    imageUrl: pokemon.sprites.other['official-artwork'].front_default ?? '',
     types: pokemon.types.map((t) => t.type.name),
     captureRate: species.capture_rate,
   }
