@@ -135,12 +135,12 @@ export async function executeDrop(groupId: string): Promise<void> {
 
   await enqueueSendMessage(
     {
-      type: 'pokemon_drop' as any,
+      type: 'pokemon_drop',
       groupId,
       content: pokemon.imageUrl,
       caption: aiCaption,
       dropId: drop.id,
-    } as any,
+    },
     { idempotencyKey: `drop:${drop.id}` }
   )
 
