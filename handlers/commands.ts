@@ -1,5 +1,6 @@
 import removeAccentsLib from "remove-accents";
 import { prisma } from "../services/db.js";
+import { getRedis } from "../services/redis.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
 import { log } from "../services/logger.js";
 import { generateAIAnalysis } from "../services/ai.js";
@@ -55,15 +56,33 @@ export function createCommandProcessor({
     return !!(msg && msg.from === allowed);
   }
 
-  type AllCommand = { type: CommandType.All }
-  type AnaliseCommand = { type: CommandType.Analise; n: number }
+  type AllCommand      = { type: CommandType.All }
+  type AnaliseCommand  = { type: CommandType.Analise; n: number }
   type PokemonsCommand = { type: CommandType.Pokemons }
-  type Command = AllCommand | AnaliseCommand | PokemonsCommand
+  type GaleriaCommand  = { type: CommandType.Galeria }
+  type GiveCommand     = { type: CommandType.Give;  targetNumber: string; names: string[] }
+  type TradeCommand    = { type: CommandType.Trade; targetNumber: string; names: string[] }
+  type AceitarCommand   = { type: CommandType.Aceitar; names: string[] }
+  type RecusarCommand   = { type: CommandType.Recusar }
+  type ConfirmarCommand = { type: CommandType.Confirmar }
+  type CancelarCommand  = { type: CommandType.Cancelar }
+  type AjudaCommand     = { type: CommandType.Ajuda }
+  type Command =
+    | AllCommand | AnaliseCommand | PokemonsCommand | GaleriaCommand
+    | GiveCommand | TradeCommand | AceitarCommand | RecusarCommand
+    | ConfirmarCommand | CancelarCommand | AjudaCommand
 
   function parseCommand(text: string): Command | null {
     const lowered = removeAccents((text || "").trim().toLowerCase());
+
     if (lowered === "!all" || lowered === "!everyone") return { type: CommandType.All };
     if (lowered === "!pokemons" || lowered === "!pokemon") return { type: CommandType.Pokemons };
+    if (lowered === "!galeria")    return { type: CommandType.Galeria };
+    if (lowered === "!recusar")    return { type: CommandType.Recusar };
+    if (lowered === "!confirmar")  return { type: CommandType.Confirmar };
+    if (lowered === "!cancelar")   return { type: CommandType.Cancelar };
+    if (lowered === "!ajuda" || lowered === "!help") return { type: CommandType.Ajuda };
+
     if (lowered.startsWith("!analise")) {
       const parts = lowered.split(/\s+/);
       let n = 10;
@@ -73,7 +92,60 @@ export function createCommandProcessor({
       }
       return { type: CommandType.Analise, n };
     }
+
+    // Preserve original casing for Pokémon names
+    const giveMatch = text.match(/^!give\s+@(\d+)\s+(.+)$/i);
+    if (giveMatch) {
+      const names = giveMatch[2].split(",").map((s) => s.trim()).filter(Boolean);
+      if (names.length) return { type: CommandType.Give, targetNumber: giveMatch[1], names };
+    }
+
+    const tradeMatch = text.match(/^!trade\s+@(\d+)\s+(.+)$/i);
+    if (tradeMatch) {
+      const names = tradeMatch[2].split(",").map((s) => s.trim()).filter(Boolean);
+      if (names.length) return { type: CommandType.Trade, targetNumber: tradeMatch[1], names };
+    }
+
+    const aceitarMatch = text.match(/^!aceitar\s+(.+)$/i);
+    if (aceitarMatch) {
+      const names = aceitarMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
+      if (names.length) return { type: CommandType.Aceitar, names };
+    }
+
     return null;
+  }
+
+  const GALERIA_MAX = 20
+  const GALERIA_DELAY_MS = 1000
+  const TRADE_TTL_SEC = 300
+
+  interface OwnedDrop { dropId: string; pokemonId: number; pokemonName: string }
+
+  async function resolveOwnedDrops(
+    ownerJid: string,
+    groupId: string,
+    names: string[]
+  ): Promise<{ owned: OwnedDrop[]; missing: string[] }> {
+    const drops = await prismaClient.pokemonDrop.findMany({
+      where: { capturedBy: ownerJid, groupId, capturedAt: { not: null } },
+    })
+    const pokemonIds = drops.map((d) => d.pokemonId)
+    const caches = await prismaClient.pokemonCache.findMany({
+      where: { id: { in: pokemonIds } },
+      select: { id: true, name: true },
+    })
+    const dropByPokemonId = new Map(drops.map((d) => [d.pokemonId, d]))
+
+    const owned: OwnedDrop[] = []
+    const missing: string[] = []
+    for (const name of names) {
+      const cache = caches.find((c) => c.name.toLowerCase() === name.toLowerCase())
+      if (!cache) { missing.push(name); continue }
+      const drop = dropByPokemonId.get(cache.id)
+      if (!drop) { missing.push(name); continue }
+      owned.push({ dropId: drop.id, pokemonId: cache.id, pokemonName: cache.name })
+    }
+    return { owned, missing }
   }
 
   async function handleAllCommand(msg: IncomingMsg): Promise<void> {
@@ -320,6 +392,346 @@ export function createCommandProcessor({
     })
   }
 
+  async function handleGaleriaCommand(msg: IncomingMsg): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const drops = await prismaClient.pokemonDrop.findMany({
+      where: { capturedBy: author, groupId: msg.from, capturedAt: { not: null } },
+      orderBy: { capturedAt: "desc" },
+      take: GALERIA_MAX,
+    })
+
+    const number = author.split("@")[0]
+
+    if (drops.length === 0) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `Nenhum Pokémon capturado ainda, @${number}. Fique de olho nos drops! 👀`,
+        mentions: [author],
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const pokemonIds = [...new Set(drops.map((d) => d.pokemonId))]
+    const caches = await prismaClient.pokemonCache.findMany({
+      where: { id: { in: pokemonIds } },
+      select: { id: true, name: true, types: true, imageUrl: true },
+    })
+    const cacheMap = new Map(caches.map((c) => [c.id, c]))
+
+    const total = drops.length
+    const hasMore = total === GALERIA_MAX
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: `📬 Enviando${hasMore ? ` os ${GALERIA_MAX} mais recentes d` : " "}a sua coleção no privado, @${number}!`,
+      mentions: [author],
+      replyTo: msg.id,
+    })
+
+    for (let i = 0; i < drops.length; i++) {
+      const drop = drops[i]
+      const cache = cacheMap.get(drop.pokemonId)
+      if (!cache) continue
+
+      const types = cache.types.join(", ")
+      const date = drop.capturedAt
+        ? drop.capturedAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+        : "?"
+      const caption = [
+        `🎮 *${cache.name}*`,
+        `🏷️ _${types}_`,
+        `📅 _Capturado em ${date}_`,
+        `[${i + 1} de ${total}]`,
+      ].join("\n")
+
+      await enqueueFn(
+        { groupId: author, type: "image", content: cache.imageUrl, caption },
+        { delay: i * GALERIA_DELAY_MS }
+      )
+    }
+  }
+
+  async function handleGiveCommand(
+    msg: IncomingMsg,
+    targetNumber: string,
+    names: string[]
+  ): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const targetJid = `${targetNumber}@s.whatsapp.net`
+    if (targetJid === author) {
+      await enqueueFn({ groupId: msg.from, type: "text", content: "Você não pode se dar um Pokémon.", replyTo: msg.id })
+      return
+    }
+
+    const { owned, missing } = await resolveOwnedDrops(author, msg.from, names)
+    if (missing.length > 0) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `Pokémon não encontrado na sua coleção: *${missing.join(", ")}*`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    await prismaClient.pokemonDrop.updateMany({
+      where: { id: { in: owned.map((o) => o.dropId) } },
+      data: { capturedBy: targetJid },
+    })
+
+    const nameList = owned.map((o) => `*${o.pokemonName}*`).join(", ")
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: `✅ @${author.split("@")[0]} deu ${nameList} para @${targetNumber}!`,
+      mentions: [author, targetJid],
+    })
+  }
+
+  async function handleTradeCommand(
+    msg: IncomingMsg,
+    targetNumber: string,
+    names: string[]
+  ): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const targetJid = `${targetNumber}@s.whatsapp.net`
+    if (targetJid === author) {
+      await enqueueFn({ groupId: msg.from, type: "text", content: "Você não pode trocar com você mesmo.", replyTo: msg.id })
+      return
+    }
+
+    const { owned, missing } = await resolveOwnedDrops(author, msg.from, names)
+    if (missing.length > 0) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `Pokémon não encontrado na sua coleção: *${missing.join(", ")}*`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const redis = getRedis()
+    const tradeKey = `trade:pending:${msg.from}:${targetJid}`
+    const existing = await redis.get(tradeKey)
+    if (existing) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `@${targetNumber} já tem uma proposta de troca pendente. Aguarda expirar ou ela recusar.`,
+        mentions: [targetJid],
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    await redis.set(
+      tradeKey,
+      JSON.stringify({ fromJid: author, dropIds: owned.map((o) => o.dropId), pokemonNames: owned.map((o) => o.pokemonName) }),
+      "EX",
+      TRADE_TTL_SEC
+    )
+
+    const nameList = owned.map((o) => `*${o.pokemonName}*`).join(", ")
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: `🔄 @${author.split("@")[0]} quer trocar ${nameList} com @${targetNumber}.\n\nResponda *!aceitar NomePokemon* com o que vai dar de volta, ou *!recusar*. Expira em 5 minutos.`,
+      mentions: [author, targetJid],
+    })
+  }
+
+  async function handleAceitarCommand(msg: IncomingMsg, names: string[]): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const redis = getRedis()
+    const pendingKey = `trade:pending:${msg.from}:${author}`
+    const raw = await redis.getdel(pendingKey)
+    if (!raw) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: "Nenhuma proposta de troca pendente para você.",
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const proposal = JSON.parse(raw) as { fromJid: string; dropIds: string[]; pokemonNames: string[] }
+
+    const { owned, missing } = await resolveOwnedDrops(author, msg.from, names)
+    if (missing.length > 0) {
+      await redis.set(pendingKey, raw, "EX", TRADE_TTL_SEC)
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `Pokémon não encontrado na sua coleção: *${missing.join(", ")}*`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    // Salva estado aguardando confirmação de A
+    const confirmKey = `trade:confirming:${msg.from}:${proposal.fromJid}`
+    await redis.set(
+      confirmKey,
+      JSON.stringify({
+        fromJid: proposal.fromJid,
+        fromDropIds: proposal.dropIds,
+        fromPokemonNames: proposal.pokemonNames,
+        toJid: author,
+        toDropIds: owned.map((o) => o.dropId),
+        toPokemonNames: owned.map((o) => o.pokemonName),
+      }),
+      "EX",
+      TRADE_TTL_SEC
+    )
+
+    const offering = proposal.pokemonNames.map((n) => `*${n}*`).join(", ")
+    const counterOffer = owned.map((o) => `*${o.pokemonName}*`).join(", ")
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: `⏳ @${author.split("@")[0]} quer dar ${counterOffer} pelo seu ${offering}, @${proposal.fromJid.split("@")[0]}.\n\nConfirme com *!confirmar* ou desista com *!cancelar*.`,
+      mentions: [author, proposal.fromJid],
+    })
+  }
+
+  async function handleConfirmarCommand(msg: IncomingMsg): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const redis = getRedis()
+    const confirmKey = `trade:confirming:${msg.from}:${author}`
+    const raw = await redis.getdel(confirmKey)
+    if (!raw) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: "Nenhuma troca aguardando sua confirmação.",
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const trade = JSON.parse(raw) as {
+      fromJid: string; fromDropIds: string[]; fromPokemonNames: string[]
+      toJid: string;   toDropIds: string[];   toPokemonNames: string[]
+    }
+
+    await prismaClient.$transaction([
+      prismaClient.pokemonDrop.updateMany({
+        where: { id: { in: trade.fromDropIds } },
+        data: { capturedBy: trade.toJid },
+      }),
+      prismaClient.pokemonDrop.updateMany({
+        where: { id: { in: trade.toDropIds } },
+        data: { capturedBy: trade.fromJid },
+      }),
+    ])
+
+    const fromGot = trade.toPokemonNames.map((n) => `*${n}*`).join(", ")
+    const toGot   = trade.fromPokemonNames.map((n) => `*${n}*`).join(", ")
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: `🤝 Troca concluída!\n@${trade.fromJid.split("@")[0]} recebeu ${fromGot}\n@${trade.toJid.split("@")[0]} recebeu ${toGot}`,
+      mentions: [trade.fromJid, trade.toJid],
+    })
+  }
+
+  async function handleCancelarCommand(msg: IncomingMsg): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const redis = getRedis()
+    const confirmKey = `trade:confirming:${msg.from}:${author}`
+    const raw = await redis.getdel(confirmKey)
+    if (!raw) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: "Nenhuma troca aguardando sua confirmação.",
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const trade = JSON.parse(raw) as { toJid: string; fromPokemonNames: string[] }
+    const offering = trade.fromPokemonNames.map((n) => `*${n}*`).join(", ")
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: `❌ @${author.split("@")[0]} desistiu da troca de ${offering}. @${trade.toJid.split("@")[0]}, sua proposta foi recusada.`,
+      mentions: [author, trade.toJid],
+    })
+  }
+
+  async function handleRecusarCommand(msg: IncomingMsg): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const redis = getRedis()
+    const tradeKey = `trade:pending:${msg.from}:${author}`
+    const raw = await redis.getdel(tradeKey)
+    if (!raw) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: "Nenhuma proposta de troca pendente para você.",
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const trade = JSON.parse(raw) as { fromJid: string; pokemonNames: string[] }
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: `❌ @${author.split("@")[0]} recusou a proposta de @${trade.fromJid.split("@")[0]}.`,
+      mentions: [author, trade.fromJid],
+    })
+  }
+
+  async function handleAjudaCommand(msg: IncomingMsg): Promise<void> {
+    const texto = [
+      `🤖 *Comandos disponíveis*`,
+      `${"─".repeat(28)}`,
+      ``,
+      `*📋 Geral*`,
+      `!pokemons — lista seus Pokémons capturados`,
+      `!galeria — recebe as fotos da sua coleção no PV`,
+      `!analise _<n>_ — análise das últimas _n_ mensagens (padrão: 10, máx: 30)`,
+      `!all — menciona todo mundo do grupo`,
+      ``,
+      `*🎁 Transferência*`,
+      `!give @numero _Pokemon1, Pokemon2_ — dá um ou mais Pokémons para alguém`,
+      ``,
+      `*🔄 Troca*`,
+      `!trade @numero _Pokemon_ — propõe uma troca`,
+      `!aceitar _Pokemon_ — contra-propõe o que você dá de volta`,
+      `!confirmar — confirma a troca após ver a contra-proposta`,
+      `!recusar — recusa uma proposta recebida`,
+      `!cancelar — desiste da troca após ver a contra-proposta`,
+    ].join("\n")
+
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: texto,
+      replyTo: msg.id,
+    })
+  }
+
   return async function processCommand(msg: IncomingMsg): Promise<void> {
     try {
       if (!msg || !msg.body) return;
@@ -339,6 +751,38 @@ export function createCommandProcessor({
       }
       if (cmd.type === CommandType.Pokemons) {
         await handlePokemonsCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.Galeria) {
+        await handleGaleriaCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.Give) {
+        await handleGiveCommand(msg, cmd.targetNumber, cmd.names);
+        return;
+      }
+      if (cmd.type === CommandType.Trade) {
+        await handleTradeCommand(msg, cmd.targetNumber, cmd.names);
+        return;
+      }
+      if (cmd.type === CommandType.Aceitar) {
+        await handleAceitarCommand(msg, cmd.names);
+        return;
+      }
+      if (cmd.type === CommandType.Recusar) {
+        await handleRecusarCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.Confirmar) {
+        await handleConfirmarCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.Cancelar) {
+        await handleCancelarCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.Ajuda) {
+        await handleAjudaCommand(msg);
         return;
       }
     } catch (err: unknown) {
