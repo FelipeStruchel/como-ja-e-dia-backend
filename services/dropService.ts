@@ -59,23 +59,19 @@ async function generateDropCaption(pokemon: {
   return result ?? '✨ Uma presença misteriosa emerge das sombras...'
 }
 
-export async function generateCaptureMessage(
-  pokemonName: string,
-  capturedByJid: string
-): Promise<string> {
-  const number = capturedByJid.split('@')[0]
+export async function generateCaptureMessage(pokemonName: string): Promise<string> {
   const result = await callGeminiChat(
     [
       { role: 'system', content: DROP_NARRATOR_PERSONA },
       {
         role: 'user',
-        content: `O treinador de número ${number} acabou de capturar ${pokemonName}! Gere uma mensagem de captura épica e celebratória que revela o nome ${pokemonName}.`,
+        content: `Um treinador acabou de capturar ${pokemonName}! Gere uma mensagem de captura épica e celebratória que revela o nome ${pokemonName}. Use o token {{mention}} exatamente onde deve aparecer a menção ao treinador.`,
       },
     ],
     30_000,
     null
   )
-  return result ?? `🎉 Incrível! *${pokemonName}* foi capturado!`
+  return result ?? `🎉 {{mention}} capturou *${pokemonName}*!`
 }
 
 export async function executeDrop(groupId: string): Promise<void> {

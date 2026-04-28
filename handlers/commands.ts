@@ -3,6 +3,7 @@ import { prisma } from "../services/db.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
 import { log } from "../services/logger.js";
 import { generateAIAnalysis } from "../services/ai.js";
+import { CommandType } from "../types.js";
 
 function removeAccents(str: string): string {
   return removeAccentsLib(str || "");
@@ -54,11 +55,15 @@ export function createCommandProcessor({
     return !!(msg && msg.from === allowed);
   }
 
-  function parseCommand(
-    text: string
-  ): { name: "all" } | { name: "analise"; n: number } | null {
+  type AllCommand = { type: CommandType.All }
+  type AnaliseCommand = { type: CommandType.Analise; n: number }
+  type PokemonsCommand = { type: CommandType.Pokemons }
+  type Command = AllCommand | AnaliseCommand | PokemonsCommand
+
+  function parseCommand(text: string): Command | null {
     const lowered = removeAccents((text || "").trim().toLowerCase());
-    if (lowered === "!all" || lowered === "!everyone") return { name: "all" };
+    if (lowered === "!all" || lowered === "!everyone") return { type: CommandType.All };
+    if (lowered === "!pokemons" || lowered === "!pokemon") return { type: CommandType.Pokemons };
     if (lowered.startsWith("!analise")) {
       const parts = lowered.split(/\s+/);
       let n = 10;
@@ -66,7 +71,7 @@ export function createCommandProcessor({
         const parsed = parseInt(parts[1], 10);
         if (!isNaN(parsed)) n = parsed;
       }
-      return { name: "analise", n };
+      return { type: CommandType.Analise, n };
     }
     return null;
   }
@@ -269,6 +274,52 @@ export function createCommandProcessor({
     });
   }
 
+  async function handlePokemonsCommand(msg: IncomingMsg): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const drops = await prismaClient.pokemonDrop.findMany({
+      where: { capturedBy: author, groupId: msg.from, capturedAt: { not: null } },
+      orderBy: { capturedAt: "desc" },
+    })
+
+    if (drops.length === 0) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `Nenhum Pokémon capturado ainda. Fique de olho nos drops! 👀`,
+        mentions: [author],
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const pokemonIds = [...new Set(drops.map((d) => d.pokemonId))]
+    const caches = await prismaClient.pokemonCache.findMany({
+      where: { id: { in: pokemonIds } },
+      select: { id: true, name: true },
+    })
+    const nameMap = new Map(caches.map((c) => [c.id, c.name]))
+
+    const number = author.split("@")[0]
+    const header = `🎮 *Pokédex de @${number}* — ${drops.length} capturado${drops.length !== 1 ? "s" : ""}\n`
+    const divider = `${"─".repeat(28)}\n`
+    const lines = drops.map((d, i) => {
+      const name = nameMap.get(d.pokemonId) ?? `#${d.pokemonId}`
+      const date = d.capturedAt
+        ? `_${d.capturedAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}_`
+        : ""
+      return `${i + 1}. *${name}*${date ? `  ${date}` : ""}`
+    })
+
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content: header + divider + lines.join("\n"),
+      mentions: [author],
+    })
+  }
+
   return async function processCommand(msg: IncomingMsg): Promise<void> {
     try {
       if (!msg || !msg.body) return;
@@ -278,12 +329,16 @@ export function createCommandProcessor({
       const cmd = parseCommand(text);
       if (!cmd) return;
 
-      if (cmd.name === "all") {
+      if (cmd.type === CommandType.All) {
         await handleAllCommand(msg);
         return;
       }
-      if (cmd.name === "analise") {
+      if (cmd.type === CommandType.Analise) {
         await handleAnaliseCommand(msg, cmd.n);
+        return;
+      }
+      if (cmd.type === CommandType.Pokemons) {
+        await handlePokemonsCommand(msg);
         return;
       }
     } catch (err: unknown) {

@@ -47,7 +47,9 @@ export function registerDropRoutes(app: Express): void {
           : null
         const pokemonName = pokemon?.name ?? `Pokémon desconhecido`
 
-        const message = await generateCaptureMessage(pokemonName, capturedBy)
+        const number = capturedBy.split('@')[0]
+        const raw = await generateCaptureMessage(pokemonName)
+        const message = raw.replace('{{mention}}', `@${number}`)
 
         await enqueueSendMessage({
           type: 'text',
