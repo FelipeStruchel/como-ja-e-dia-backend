@@ -10,4 +10,6 @@ export enum CommandType {
   Confirmar = "confirmar",
   Cancelar = "cancelar",
   Ajuda = "ajuda",
+  UsageError = "usage_error",
+  ForceSpawn = "forcespawn",
 }
