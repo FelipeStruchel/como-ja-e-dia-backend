@@ -18,6 +18,7 @@ interface IncomingMsg {
   isGroup?: boolean;
   fromMe?: boolean;
   participants?: unknown[];
+  mentionedJids?: string[];
   recentMessages?: Array<{
     body?: string;
     type?: string;
@@ -60,8 +61,8 @@ export function createCommandProcessor({
   type AnaliseCommand  = { type: CommandType.Analise; n: number }
   type PokemonsCommand = { type: CommandType.Pokemons }
   type GaleriaCommand  = { type: CommandType.Galeria }
-  type GiveCommand     = { type: CommandType.Give;  targetNumber: string; names: string[] }
-  type TradeCommand    = { type: CommandType.Trade; targetNumber: string; names: string[] }
+  type GiveCommand     = { type: CommandType.Give;  names: string[] }
+  type TradeCommand    = { type: CommandType.Trade; names: string[] }
   type AceitarCommand   = { type: CommandType.Aceitar; names: string[] }
   type RecusarCommand   = { type: CommandType.Recusar }
   type ConfirmarCommand = { type: CommandType.Confirmar }
@@ -93,17 +94,18 @@ export function createCommandProcessor({
       return { type: CommandType.Analise, n };
     }
 
-    // Preserve original casing for Pokémon names
-    const giveMatch = text.match(/^!give\s+@(\d+)\s+(.+)$/i);
+    // Target JID comes from contextInfo.mentionedJid (passed as mentionedJids),
+    // not from the text — the body may contain a LID instead of a phone number.
+    const giveMatch = text.match(/^!give\s+@\S+\s+(.+)$/i);
     if (giveMatch) {
-      const names = giveMatch[2].split(",").map((s) => s.trim()).filter(Boolean);
-      if (names.length) return { type: CommandType.Give, targetNumber: giveMatch[1], names };
+      const names = giveMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
+      if (names.length) return { type: CommandType.Give, names };
     }
 
-    const tradeMatch = text.match(/^!trade\s+@(\d+)\s+(.+)$/i);
+    const tradeMatch = text.match(/^!trade\s+@\S+\s+(.+)$/i);
     if (tradeMatch) {
-      const names = tradeMatch[2].split(",").map((s) => s.trim()).filter(Boolean);
-      if (names.length) return { type: CommandType.Trade, targetNumber: tradeMatch[1], names };
+      const names = tradeMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
+      if (names.length) return { type: CommandType.Trade, names };
     }
 
     const aceitarMatch = text.match(/^!aceitar\s+(.+)$/i);
@@ -457,13 +459,17 @@ export function createCommandProcessor({
 
   async function handleGiveCommand(
     msg: IncomingMsg,
-    targetNumber: string,
     names: string[]
   ): Promise<void> {
     const author = msg.author || ""
     if (!author || !msg.from) return
 
-    const targetJid = `${targetNumber}@s.whatsapp.net`
+    const targetJid = msg.mentionedJids?.[0]
+    if (!targetJid) {
+      await enqueueFn({ groupId: msg.from, type: "text", content: "Use o @menção do WhatsApp para indicar o destinatário.", replyTo: msg.id })
+      return
+    }
+
     if (targetJid === author) {
       await enqueueFn({ groupId: msg.from, type: "text", content: "Você não pode se dar um Pokémon.", replyTo: msg.id })
       return
@@ -489,20 +495,24 @@ export function createCommandProcessor({
     await enqueueFn({
       groupId: msg.from,
       type: "text",
-      content: `✅ @${author.split("@")[0]} deu ${nameList} para @${targetNumber}!`,
+      content: `✅ @${author.split("@")[0]} deu ${nameList} para @${targetJid.split("@")[0]}!`,
       mentions: [author, targetJid],
     })
   }
 
   async function handleTradeCommand(
     msg: IncomingMsg,
-    targetNumber: string,
     names: string[]
   ): Promise<void> {
     const author = msg.author || ""
     if (!author || !msg.from) return
 
-    const targetJid = `${targetNumber}@s.whatsapp.net`
+    const targetJid = msg.mentionedJids?.[0]
+    if (!targetJid) {
+      await enqueueFn({ groupId: msg.from, type: "text", content: "Use o @menção do WhatsApp para indicar com quem quer trocar.", replyTo: msg.id })
+      return
+    }
+
     if (targetJid === author) {
       await enqueueFn({ groupId: msg.from, type: "text", content: "Você não pode trocar com você mesmo.", replyTo: msg.id })
       return
@@ -526,7 +536,7 @@ export function createCommandProcessor({
       await enqueueFn({
         groupId: msg.from,
         type: "text",
-        content: `@${targetNumber} já tem uma proposta de troca pendente. Aguarda expirar ou ela recusar.`,
+        content: `@${targetJid.split("@")[0]} já tem uma proposta de troca pendente. Aguarda expirar ou ela recusar.`,
         mentions: [targetJid],
         replyTo: msg.id,
       })
@@ -544,7 +554,7 @@ export function createCommandProcessor({
     await enqueueFn({
       groupId: msg.from,
       type: "text",
-      content: `🔄 @${author.split("@")[0]} quer trocar ${nameList} com @${targetNumber}.\n\nResponda *!aceitar NomePokemon* com o que vai dar de volta, ou *!recusar*. Expira em 5 minutos.`,
+      content: `🔄 @${author.split("@")[0]} quer trocar ${nameList} com @${targetJid.split("@")[0]}.\n\nResponda *!aceitar NomePokemon* com o que vai dar de volta, ou *!recusar*. Expira em 5 minutos.`,
       mentions: [author, targetJid],
     })
   }
@@ -758,11 +768,11 @@ export function createCommandProcessor({
         return;
       }
       if (cmd.type === CommandType.Give) {
-        await handleGiveCommand(msg, cmd.targetNumber, cmd.names);
+        await handleGiveCommand(msg, cmd.names);
         return;
       }
       if (cmd.type === CommandType.Trade) {
-        await handleTradeCommand(msg, cmd.targetNumber, cmd.names);
+        await handleTradeCommand(msg, cmd.names);
         return;
       }
       if (cmd.type === CommandType.Aceitar) {
