@@ -74,7 +74,10 @@ export async function generateCaptureMessage(pokemonName: string): Promise<strin
   return result ?? `🎉 {{mention}} capturou *${pokemonName}*!`
 }
 
-export async function executeDrop(groupId: string): Promise<void> {
+export async function executeDrop(
+  groupId: string,
+  options?: { spawnedBy?: string; spawnerUnlocksAt?: number }
+): Promise<void> {
   const redis = getRedis()
 
   const existing = await redis.get(`drop:active:${groupId}`)
@@ -122,9 +125,18 @@ export async function executeDrop(groupId: string): Promise<void> {
     data: { groupId, pokemonId },
   })
 
+  const expiresAt = Date.now() + DROP_CONFIG.ACTIVE_TTL_SEC * 1000
+
   await redis.set(
     `drop:active:${groupId}`,
-    JSON.stringify({ dropId: drop.id, pokemonId }),
+    JSON.stringify({
+      dropId: drop.id,
+      pokemonId,
+      expiresAt,
+      ...(options?.spawnedBy
+        ? { spawnedBy: options.spawnedBy, spawnerUnlocksAt: options.spawnerUnlocksAt }
+        : {}),
+    }),
     'EX',
     DROP_CONFIG.ACTIVE_TTL_SEC
   )
