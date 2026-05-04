@@ -93,14 +93,20 @@ export function registerDropRoutes(app: Express): void {
 
     res.json({ ok: true })
 
-    const secsLeft = Math.max(60, Math.ceil((unlocksAt - Date.now()) / 1000))
-    const minsLeft = Math.ceil(secsLeft / 60)
-    const number = reactorJid.split('@')[0]
-    await enqueueSendMessage({
-      type: 'text',
-      groupId,
-      content: `⏳ @${number}, você convocou este Pokémon! Aguarda ${minsLeft} minuto${minsLeft !== 1 ? 's' : ''} antes de poder capturá-lo.`,
-      mentions: [reactorJid],
+    setImmediate(async () => {
+      try {
+        const secsLeft = Math.max(60, Math.ceil((unlocksAt - Date.now()) / 1000))
+        const minsLeft = Math.ceil(secsLeft / 60)
+        const number = reactorJid.split('@')[0]
+        await enqueueSendMessage({
+          type: 'text',
+          groupId,
+          content: `⏳ @${number}, você convocou este Pokémon! Aguarda ${minsLeft} minuto${minsLeft !== 1 ? 's' : ''} antes de poder capturá-lo.`,
+          mentions: [reactorJid],
+        })
+      } catch (err) {
+        log(`Erro ao notificar spawner bloqueado: ${(err as Error).message}`, 'error')
+      }
     })
   })
 }

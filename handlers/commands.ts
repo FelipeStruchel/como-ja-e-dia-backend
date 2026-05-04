@@ -821,11 +821,10 @@ export function createCommandProcessor({
     const now = Date.now()
     const windowStart = now - 86_400_000
     await redis.zremrangebyscore(groupKey, "-inf", windowStart)
-    const groupCount = await redis.zcount(groupKey, windowStart, "+inf")
+    const groupCount = await redis.zcount(groupKey, windowStart + 1, "+inf")
     if (groupCount >= 5) {
       // Find when the oldest entry within the window exits (freeing a slot)
-      const idx = groupCount - 5
-      const [member] = await redis.zrange(groupKey, idx, idx)
+      const [member] = await redis.zrange(groupKey, 0, 0)
       let timeStr = "algumas horas"
       if (member) {
         const score = await redis.zscore(groupKey, member)
