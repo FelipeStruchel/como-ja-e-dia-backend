@@ -8,6 +8,10 @@ function getJwtSecret(): string {
   return process.env.JWT_SECRET || "dev-secret-change-me";
 }
 
+const userWithRoles = {
+  include: { roles: { include: { role: true } } },
+} as const;
+
 export async function registerUser({
   email,
   password,
@@ -27,7 +31,7 @@ export async function registerUser({
   }
   const passwordHash = await bcrypt.hash(password, 10);
   return prisma.user.create({
-    data: { email: normalized, name: name || "", passwordHash, status: "pending" },
+    data: { email: normalized, name: name || "", passwordHash, active: false },
   });
 }
 
@@ -39,14 +43,17 @@ export async function authenticateUser({
   password: string;
 }) {
   const normalized = String(email || "").toLowerCase().trim();
-  const user = await prisma.user.findUnique({ where: { email: normalized } });
+  const user = await prisma.user.findUnique({
+    where: { email: normalized },
+    ...userWithRoles,
+  });
   if (!user) throw new Error("Credenciais inválidas");
   const ok = await bcrypt.compare(password || "", user.passwordHash);
   if (!ok) throw new Error("Credenciais inválidas");
-  if (user.status === "pending") throw new Error("Cadastro pendente de aprovação");
-  if (user.status === "blocked") throw new Error("Usuário bloqueado");
+  if (!user.active) throw new Error("Conta inativa");
+  const roles = user.roles.map((ur) => ur.role.slug);
   const token = jwt.sign(
-    { sub: user.id, email: user.email },
+    { sub: user.id, email: user.email, roles },
     getJwtSecret(),
     { expiresIn: process.env.JWT_TTL || DEFAULT_JWT_TTL } as jwt.SignOptions
   );
@@ -58,19 +65,40 @@ export function verifyToken(token: string): jwt.JwtPayload {
 }
 
 export async function getUserById(id: string) {
-  return prisma.user.findUnique({ where: { id } });
+  return prisma.user.findUnique({
+    where: { id },
+    ...userWithRoles,
+  });
 }
 
-export async function listUsers({ status }: { status?: string }) {
-  const where = status ? { status: status as import("@prisma/client").UserStatus } : {};
-  return prisma.user.findMany({ where, orderBy: { createdAt: "desc" } });
+export async function listUsers() {
+  return prisma.user.findMany({
+    ...userWithRoles,
+    orderBy: { createdAt: "desc" },
+  });
 }
 
-export async function setUserStatus(id: string, status: string) {
+export async function setUserActive(id: string, active: boolean) {
   try {
-    return await prisma.user.update({ where: { id }, data: { status: status as import("@prisma/client").UserStatus } });
+    return await prisma.user.update({ where: { id }, data: { active } });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === "P2025") return null;
     throw err;
   }
+}
+
+export async function assignRole(userId: string, roleSlug: string) {
+  const role = await prisma.role.findUnique({ where: { slug: roleSlug } });
+  if (!role) throw new Error("Role não encontrada");
+  await prisma.userRole.create({ data: { userId, roleId: role.id } });
+}
+
+export async function removeRole(userId: string, roleSlug: string) {
+  const role = await prisma.role.findUnique({ where: { slug: roleSlug } });
+  if (!role) return;
+  await prisma.userRole.deleteMany({ where: { userId, roleId: role.id } });
+}
+
+export async function listRoles() {
+  return prisma.role.findMany({ orderBy: { name: "asc" } });
 }
