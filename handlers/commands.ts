@@ -4,7 +4,8 @@ import { getRedis } from "../services/redis.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
 import { log } from "../services/logger.js";
 import { generateAIAnalysis } from "../services/ai.js";
-import { CommandType } from "../types.js";
+import { CommandType } from "../types.js"
+import { executeDrop } from '../services/dropService.js';
 
 function removeAccents(str: string): string {
   return removeAccentsLib(str || "");
@@ -67,11 +68,14 @@ export function createCommandProcessor({
   type RecusarCommand   = { type: CommandType.Recusar }
   type ConfirmarCommand = { type: CommandType.Confirmar }
   type CancelarCommand  = { type: CommandType.Cancelar }
-  type AjudaCommand     = { type: CommandType.Ajuda }
+  type AjudaCommand      = { type: CommandType.Ajuda }
+  type UsageErrorCommand = { type: CommandType.UsageError; hint: string }
+  type ForceSpawnCommand = { type: CommandType.ForceSpawn }
   type Command =
     | AllCommand | AnaliseCommand | PokemonsCommand | GaleriaCommand
     | GiveCommand | TradeCommand | AceitarCommand | RecusarCommand
-    | ConfirmarCommand | CancelarCommand | AjudaCommand
+    | ConfirmarCommand | CancelarCommand | AjudaCommand | UsageErrorCommand
+    | ForceSpawnCommand
 
   function parseCommand(text: string): Command | null {
     const lowered = removeAccents((text || "").trim().toLowerCase());
@@ -83,6 +87,7 @@ export function createCommandProcessor({
     if (lowered === "!confirmar")  return { type: CommandType.Confirmar };
     if (lowered === "!cancelar")   return { type: CommandType.Cancelar };
     if (lowered === "!ajuda" || lowered === "!help") return { type: CommandType.Ajuda };
+    if (lowered === "!forcespawn") return { type: CommandType.ForceSpawn };
 
     if (lowered.startsWith("!analise")) {
       const parts = lowered.split(/\s+/);
@@ -101,17 +106,26 @@ export function createCommandProcessor({
       const names = giveMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
       if (names.length) return { type: CommandType.Give, names };
     }
+    if (/^!give(\s|$)/i.test(text)) {
+      return { type: CommandType.UsageError, hint: "❌ Uso correto: *!give @pessoa NomePokemon* (separe vários por vírgula)" };
+    }
 
     const tradeMatch = text.match(/^!trade\s+@\S+\s+(.+)$/i);
     if (tradeMatch) {
       const names = tradeMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
       if (names.length) return { type: CommandType.Trade, names };
     }
+    if (/^!trade(\s|$)/i.test(text)) {
+      return { type: CommandType.UsageError, hint: "❌ Uso correto: *!trade @pessoa NomePokemon* (separe vários por vírgula)" };
+    }
 
     const aceitarMatch = text.match(/^!aceitar\s+(.+)$/i);
     if (aceitarMatch) {
       const names = aceitarMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
       if (names.length) return { type: CommandType.Aceitar, names };
+    }
+    if (/^!aceitar(\s|$)/i.test(text)) {
+      return { type: CommandType.UsageError, hint: "❌ Uso correto: *!aceitar NomePokemon* (o que você dá em troca)" };
     }
 
     return null;
@@ -621,6 +635,31 @@ export function createCommandProcessor({
     if (!author || !msg.from) return
 
     const redis = getRedis()
+
+    // Forcespawn confirmation takes priority over trade confirming
+    const pendingKey = `forcespawn:pending:${msg.from}:${author}`
+    const pending = await redis.getdel(pendingKey)
+    if (pending) {
+      const now = Date.now()
+      const spawnerUnlocksAt = now + 300_000
+
+      // Register cooldowns before spawning
+      await redis.set(`forcespawn:user:${msg.from}:${author}`, now.toString(), "EX", 86400)
+      await redis.zadd(`forcespawn:group:${msg.from}`, now, `${author}:${now}`)
+
+      await executeDrop(msg.from, { spawnedBy: author, spawnerUnlocksAt })
+
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `🌟 @${author.split("@")[0]} convocou um Pokémon selvagem! Seja rápido para capturá-lo!`,
+        mentions: [author],
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    // Existing trade confirming logic
     const confirmKey = `trade:confirming:${msg.from}:${author}`
     const raw = await redis.getdel(confirmKey)
     if (!raw) {
@@ -722,6 +761,7 @@ export function createCommandProcessor({
       `!galeria — recebe as fotos da sua coleção no PV`,
       `!analise _<n>_ — análise das últimas _n_ mensagens (padrão: 10, máx: 30)`,
       `!all — menciona todo mundo do grupo`,
+      `!forcespawn — convoca um Pokémon selvagem (1x por dia; quem convoca não pode capturar por 5 min; máx 5 por dia no grupo)`,
       ``,
       `*🎁 Transferência*`,
       `!give @numero _Pokemon1, Pokemon2_ — dá um ou mais Pokémons para alguém`,
@@ -738,6 +778,82 @@ export function createCommandProcessor({
       groupId: msg.from,
       type: "text",
       content: texto,
+      replyTo: msg.id,
+    })
+  }
+
+  async function handleForcespawnCommand(msg: IncomingMsg): Promise<void> {
+    const author = msg.author || ""
+    if (!author || !msg.from) return
+
+    const redis = getRedis()
+
+    // Block if there is already an active drop
+    const activeDrop = await redis.get(`drop:active:${msg.from}`)
+    if (activeDrop) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: "Já tem um Pokémon selvagem por aí! Aguarda ele ser capturado primeiro.",
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    // Per-user 24h cooldown
+    const userKey = `forcespawn:user:${msg.from}:${author}`
+    const userTtl = await redis.ttl(userKey)
+    if (userTtl > 0) {
+      const h = Math.floor(userTtl / 3600)
+      const m = Math.ceil((userTtl % 3600) / 60)
+      const timeStr = h > 0 ? `${h}h e ${m}min` : `${m} minuto${m !== 1 ? "s" : ""}`
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `Você já usou !forcespawn hoje. Pode usar novamente em ${timeStr}.`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    // Per-group limit: 5 per 24h
+    const groupKey = `forcespawn:group:${msg.from}`
+    const now = Date.now()
+    const windowStart = now - 86_400_000
+    await redis.zremrangebyscore(groupKey, "-inf", windowStart)
+    const groupCount = await redis.zcount(groupKey, windowStart, "+inf")
+    if (groupCount >= 5) {
+      // Find when the oldest entry within the window exits (freeing a slot)
+      const idx = groupCount - 5
+      const [member] = await redis.zrange(groupKey, idx, idx)
+      let timeStr = "algumas horas"
+      if (member) {
+        const score = await redis.zscore(groupKey, member)
+        if (score) {
+          const secsLeft = Math.max(60, Math.ceil((parseInt(score, 10) + 86_400_000 - now) / 1000))
+          const h = Math.floor(secsLeft / 3600)
+          const m = Math.ceil((secsLeft % 3600) / 60)
+          timeStr = h > 0 ? `${h}h e ${m}min` : `${m} minuto${m !== 1 ? "s" : ""}`
+        }
+      }
+      await enqueueFn({
+        groupId: msg.from,
+        type: "text",
+        content: `O grupo já convocou 5 Pokémons hoje. Próxima convocação disponível em ${timeStr}.`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    // Set pending confirmation (60s TTL — expires silently if ignored)
+    const pendingKey = `forcespawn:pending:${msg.from}:${author}`
+    await redis.set(pendingKey, "1", "EX", 60)
+
+    await enqueueFn({
+      groupId: msg.from,
+      type: "text",
+      content:
+        "⚠️ Você não poderá capturar este Pokémon por 5 minutos. Responda *!confirmar* para convocar, ou ignore para cancelar.",
       replyTo: msg.id,
     })
   }
@@ -793,6 +909,14 @@ export function createCommandProcessor({
       }
       if (cmd.type === CommandType.Ajuda) {
         await handleAjudaCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.ForceSpawn) {
+        await handleForcespawnCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.UsageError) {
+        await enqueueFn({ groupId: msg.from, type: "text", content: cmd.hint, replyTo: msg.id });
         return;
       }
     } catch (err: unknown) {
