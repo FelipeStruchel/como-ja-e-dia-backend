@@ -1,5 +1,5 @@
 import { Express } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { prisma } from "../services/db.js";
 import {
   clearRepeat,
@@ -61,7 +61,7 @@ function parseSchedule(body: Record<string, unknown>) {
 }
 
 export function registerScheduleRoutes(app: Express) {
-  app.get("/schedules", requireAuth, async (_req, res) => {
+  app.get("/schedules", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
     try {
       const list = await prisma.schedule.findMany({ orderBy: { createdAt: "desc" } });
       res.json(list);
@@ -71,7 +71,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/schedules", requireAuth, async (req, res) => {
+  app.post("/schedules", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     try {
       const payload = parseSchedule(req.body || {});
       if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
@@ -84,7 +84,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.put("/schedules/:id", requireAuth, async (req, res) => {
+  app.put("/schedules/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     try {
       const payload = parseSchedule(req.body || {});
       if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
@@ -103,7 +103,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.delete("/schedules/:id", requireAuth, async (req, res) => {
+  app.delete("/schedules/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     try {
       const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });
@@ -116,7 +116,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/schedules/resync", requireAuth, async (_req, res) => {
+  app.post("/schedules/resync", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
     try {
       await resyncSchedules();
       res.json({ success: true });

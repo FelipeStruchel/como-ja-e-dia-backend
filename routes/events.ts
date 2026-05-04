@@ -1,6 +1,7 @@
 import { Express } from "express";
 import { PrismaClient } from "@prisma/client";
 import moment from "moment-timezone";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 
 export function registerEventRoutes(
   app: Express,
@@ -31,7 +32,7 @@ export function registerEventRoutes(
     }
   });
 
-  app.post("/events", async (req, res) => {
+  app.post("/events", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     if (!isDbConnected()) return res.status(503).json({ error: "DB unavailable" });
     try {
       const { name, date } = req.body;
@@ -58,7 +59,7 @@ export function registerEventRoutes(
     }
   });
 
-  app.delete("/events/:id", async (req, res) => {
+  app.delete("/events/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     if (!isDbConnected()) return res.status(503).json({ error: "DB unavailable" });
     try {
       await prisma.event.delete({ where: { id: req.params.id } });

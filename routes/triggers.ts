@@ -1,5 +1,5 @@
 import { Express } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { prisma } from "../services/db.js";
 
 function parseTriggerPayload(body: Record<string, unknown>) {
@@ -67,7 +67,7 @@ function validateTriggerPayload(payload: Record<string, unknown>) {
 }
 
 export function registerTriggerRoutes(app: Express) {
-  app.get("/triggers", requireAuth, async (_req, res) => {
+  app.get("/triggers", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
     try {
       const list = await prisma.trigger.findMany({ orderBy: { createdAt: "desc" } });
       res.json(list);
@@ -77,7 +77,7 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.post("/triggers", requireAuth, async (req, res) => {
+  app.post("/triggers", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     try {
       const payload = parseTriggerPayload(req.body || {});
       validateTriggerPayload(payload);
@@ -89,7 +89,7 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.put("/triggers/:id", requireAuth, async (req, res) => {
+  app.put("/triggers/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     try {
       const payload = parseTriggerPayload(req.body || {});
       validateTriggerPayload(payload);
@@ -111,7 +111,7 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.delete("/triggers/:id", requireAuth, async (req, res) => {
+  app.delete("/triggers/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
     try {
       try {
         await prisma.trigger.delete({ where: { id: req.params.id } });

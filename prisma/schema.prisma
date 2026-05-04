@@ -6,19 +6,32 @@ datasource db {
   provider = "postgresql"
 }
 
-enum UserStatus {
-  pending
-  approved
-  blocked
-}
-
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
   name         String     @default("")
   passwordHash String
-  status       UserStatus @default(pending)
+  active       Boolean    @default(false)
   createdAt    DateTime   @default(now())
+  roles        UserRole[]
+}
+
+model Role {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  createdAt DateTime   @default(now())
+  users     UserRole[]
+}
+
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id])
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
 }
 
 model Event {

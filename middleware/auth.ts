@@ -1,6 +1,16 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken, getUserById } from "../services/authService.js";
 
+type UserWithRoles = Awaited<ReturnType<typeof getUserById>>;
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: UserWithRoles;
+    }
+  }
+}
+
 export async function requireAuth(
   req: Request,
   res: Response,
@@ -19,9 +29,27 @@ export async function requireAuth(
       res.status(401).json({ error: "Usuário não encontrado" });
       return;
     }
-    (req as Request & { user: typeof user }).user = user;
+    req.user = user;
     next();
   } catch {
     res.status(401).json({ error: "Token inválido" });
   }
+}
+
+export function requireRole(...slugs: string[]) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ error: "Não autenticado" });
+      return;
+    }
+    const userSlugs = user.roles?.map((ur) => ur.role.slug) ?? [];
+    const hasAccess =
+      userSlugs.includes("super_admin") || slugs.some((s) => userSlugs.includes(s));
+    if (!hasAccess) {
+      res.status(403).json({ error: "Sem permissão" });
+      return;
+    }
+    next();
+  };
 }
