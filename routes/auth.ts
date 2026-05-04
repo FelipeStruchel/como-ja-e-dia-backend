@@ -2,28 +2,33 @@ import { Express } from "express";
 import {
   registerUser,
   authenticateUser,
-  verifyToken,
   getUserById,
   listUsers,
-  setUserStatus,
+  setUserActive,
+  assignRole,
+  removeRole,
+  listRoles,
+  verifyToken,
 } from "../services/authService.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 
-function requireAuth(req: { headers: { authorization?: string } }) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!token) throw new Error("Token ausente");
-  return verifyToken(token);
+function serializeUser(u: NonNullable<Awaited<ReturnType<typeof getUserById>>>) {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    active: u.active,
+    createdAt: u.createdAt,
+    roles: u.roles.map((ur) => ur.role.slug),
+  };
 }
 
 export function registerAuthRoutes(app: Express) {
   app.post("/auth/register", async (req, res) => {
     try {
       const { email, password, name } = req.body || {};
-      const user = await registerUser({ email, password, name });
-      res.status(201).json({
-        message: "Cadastro realizado. Aguarde aprovação.",
-        status: user.status,
-      });
+      await registerUser({ email, password, name });
+      res.status(201).json({ message: "Cadastro realizado. Aguarde aprovação." });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao registrar";
       res.status(400).json({ error: msg });
@@ -36,7 +41,13 @@ export function registerAuthRoutes(app: Express) {
       const { user, token } = await authenticateUser({ email, password });
       res.json({
         token,
-        user: { id: user.id, email: user.email, name: user.name, status: user.status },
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          active: user.active,
+          roles: user.roles.map((ur) => ur.role.slug),
+        },
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Credenciais inválidas";
@@ -52,56 +63,66 @@ export function registerAuthRoutes(app: Express) {
       const payload = verifyToken(token);
       const user = await getUserById(payload.sub as string);
       if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
-      res.json({ user: { id: user.id, email: user.email, name: user.name, status: user.status } });
+      res.json({ user: serializeUser(user) });
     } catch {
       res.status(401).json({ error: "Token inválido" });
     }
   });
 
-  app.get("/auth/users", async (req, res) => {
+  // --- User management (super_admin only) ---
+
+  app.get("/auth/users", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const payload = requireAuth(req);
-      if (!payload) return res.status(401).json({ error: "Token inválido" });
-      const { status } = req.query as { status?: string };
-      const users = await listUsers({ status });
-      res.json(
-        users.map((u) => ({
-          id: u.id,
-          email: u.email,
-          name: u.name,
-          status: u.status,
-          createdAt: u.createdAt,
-        }))
-      );
+      const users = await listUsers();
+      res.json(users.map(serializeUser));
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Não autorizado";
-      res.status(401).json({ error: msg });
+      const msg = err instanceof Error ? err.message : "Erro ao listar usuários";
+      res.status(500).json({ error: msg });
     }
   });
 
-  app.post("/auth/users/:id/approve", async (req, res) => {
+  app.patch("/auth/users/:id/active", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const payload = requireAuth(req);
-      if (!payload) return res.status(401).json({ error: "Token inválido" });
-      const updated = await setUserStatus(req.params.id, "approved");
+      const { active } = req.body || {};
+      if (typeof active !== "boolean") {
+        return res.status(400).json({ error: "Campo 'active' deve ser boolean" });
+      }
+      const updated = await setUserActive(req.params.id, active);
       if (!updated) return res.status(404).json({ error: "Usuário não encontrado" });
-      res.json({ message: "Usuário aprovado" });
+      res.json({ message: "Status atualizado" });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao aprovar";
+      const msg = err instanceof Error ? err.message : "Erro ao atualizar";
       res.status(400).json({ error: msg });
     }
   });
 
-  app.post("/auth/users/:id/block", async (req, res) => {
+  app.post("/auth/users/:id/roles/:slug", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const payload = requireAuth(req);
-      if (!payload) return res.status(401).json({ error: "Token inválido" });
-      const updated = await setUserStatus(req.params.id, "blocked");
-      if (!updated) return res.status(404).json({ error: "Usuário não encontrado" });
-      res.json({ message: "Usuário bloqueado" });
+      await assignRole(req.params.id, req.params.slug);
+      res.json({ message: "Role atribuída" });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao bloquear";
+      const msg = err instanceof Error ? err.message : "Erro ao atribuir role";
       res.status(400).json({ error: msg });
+    }
+  });
+
+  app.delete("/auth/users/:id/roles/:slug", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      await removeRole(req.params.id, req.params.slug);
+      res.json({ message: "Role removida" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao remover role";
+      res.status(400).json({ error: msg });
+    }
+  });
+
+  app.get("/auth/roles", requireAuth, requireRole("super_admin"), async (_req, res) => {
+    try {
+      const roles = await listRoles();
+      res.json(roles);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao listar roles";
+      res.status(500).json({ error: msg });
     }
   });
 }
