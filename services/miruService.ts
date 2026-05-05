@@ -118,3 +118,64 @@ export async function listCharacters(filters: {
 export async function softDeleteCharacter(id: string): Promise<void> {
   await prisma.character.update({ where: { id }, data: { active: false } })
 }
+
+// ── Roll allowance ─────────────────────────────────────────────────────────
+
+export const ROLL_ALLOWANCE = 10
+const ROLL_WINDOW_MS = 3_600_000
+
+export interface RollState {
+  used: number
+  windowStart: number
+}
+
+export async function getRollState(gameGroupId: string, jid: string): Promise<RollState> {
+  const redis = getRedis()
+  const raw = await redis.get(`miru:rolls:${gameGroupId}:${jid}`)
+  if (!raw) return { used: 0, windowStart: Date.now() }
+  return JSON.parse(raw) as RollState
+}
+
+export async function consumeRolls(
+  gameGroupId: string,
+  jid: string,
+  count: number
+): Promise<{ allowed: number; remaining: number; resetsInSec: number }> {
+  const redis = getRedis()
+  const key = `miru:rolls:${gameGroupId}:${jid}`
+  const now = Date.now()
+  const raw = await redis.get(key)
+
+  const state: RollState = raw
+    ? (JSON.parse(raw) as RollState)
+    : { used: 0, windowStart: now }
+
+  const remaining = ROLL_ALLOWANCE - state.used
+  const allowed = Math.min(count, remaining)
+
+  if (allowed <= 0) {
+    const resetsInSec = Math.max(
+      0,
+      Math.ceil((state.windowStart + ROLL_WINDOW_MS - now) / 1000)
+    )
+    return { allowed: 0, remaining: 0, resetsInSec }
+  }
+
+  const newState: RollState = {
+    used: state.used + allowed,
+    windowStart: state.used === 0 ? now : state.windowStart,
+  }
+
+  const ttlSec = Math.max(
+    1,
+    Math.ceil((newState.windowStart + ROLL_WINDOW_MS - now) / 1000)
+  )
+  await redis.set(key, JSON.stringify(newState), 'EX', ttlSec)
+
+  const newRemaining = ROLL_ALLOWANCE - newState.used
+  const resetsInSec = Math.max(
+    0,
+    Math.ceil((newState.windowStart + ROLL_WINDOW_MS - now) / 1000)
+  )
+  return { allowed, remaining: newRemaining, resetsInSec }
+}

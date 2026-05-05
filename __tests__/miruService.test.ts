@@ -44,8 +44,12 @@ import {
   createCharacter,
   listCharacters,
   softDeleteCharacter,
+  consumeRolls,
+  getRollState,
+  ROLL_ALLOWANCE,
 } from '../services/miruService.js'
 import { prisma } from '../services/db.js'
+import { getRedis } from '../services/redis.js'
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -149,5 +153,48 @@ describe('softDeleteCharacter', () => {
       where: { id: 'c1' },
       data: { active: false },
     })
+  })
+})
+
+describe('consumeRolls', () => {
+  it('allows count when no prior rolls', async () => {
+    const mockRedis = { get: vi.fn().mockResolvedValue(null), set: vi.fn() }
+    vi.mocked(getRedis).mockReturnValue(mockRedis as any)
+
+    const result = await consumeRolls('gameGroup1', 'user1@s.whatsapp.net', 3)
+    expect(result.allowed).toBe(3)
+    expect(result.remaining).toBe(ROLL_ALLOWANCE - 3)
+    expect(mockRedis.set).toHaveBeenCalled()
+  })
+
+  it('caps allowed at remaining rolls', async () => {
+    const state = JSON.stringify({ used: 8, windowStart: Date.now() })
+    const mockRedis = { get: vi.fn().mockResolvedValue(state), set: vi.fn() }
+    vi.mocked(getRedis).mockReturnValue(mockRedis as any)
+
+    const result = await consumeRolls('gameGroup1', 'user1@s.whatsapp.net', 5)
+    expect(result.allowed).toBe(2)
+    expect(result.remaining).toBe(0)
+  })
+
+  it('returns allowed=0 when all rolls used', async () => {
+    const state = JSON.stringify({ used: 10, windowStart: Date.now() })
+    const mockRedis = { get: vi.fn().mockResolvedValue(state), set: vi.fn() }
+    vi.mocked(getRedis).mockReturnValue(mockRedis as any)
+
+    const result = await consumeRolls('gameGroup1', 'user1@s.whatsapp.net', 1)
+    expect(result.allowed).toBe(0)
+    expect(mockRedis.set).not.toHaveBeenCalled()
+  })
+})
+
+describe('getRollState', () => {
+  it('returns default state when no Redis key', async () => {
+    const mockRedis = { get: vi.fn().mockResolvedValue(null) }
+    vi.mocked(getRedis).mockReturnValue(mockRedis as any)
+
+    const state = await getRollState('gameGroup1', 'user1@s.whatsapp.net')
+    expect(state.used).toBe(0)
+    expect(state.windowStart).toBeGreaterThan(0)
   })
 })
