@@ -49,9 +49,12 @@ import {
   ROLL_ALLOWANCE,
   selectByRarity,
   getDropPool,
+  executeMiruDrop,
+  handleMiruCapture,
 } from '../services/miruService.js'
 import { prisma } from '../services/db.js'
 import { getRedis } from '../services/redis.js'
+import { enqueueSendMessage } from '../services/sendQueue.js'
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -249,6 +252,82 @@ describe('getDropPool', () => {
     expect(prisma.characterOwnership.deleteMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ ownerJid: null }),
+      })
+    )
+  })
+})
+
+describe('executeMiruDrop', () => {
+  it('sends exhaustion message when pool is empty', async () => {
+    vi.mocked(prisma.characterOwnership.deleteMany).mockResolvedValue({ count: 0 } as any)
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([])
+    vi.mocked(prisma.character.findMany).mockResolvedValue([])
+
+    const mockRedis = { set: vi.fn() }
+    vi.mocked(getRedis).mockReturnValue(mockRedis as any)
+
+    const result = await executeMiruDrop('gameGroup1', 'user@s.whatsapp.net', 1)
+    expect(result.dropped).toBe(0)
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'text' })
+    )
+    expect(prisma.characterOwnership.create).not.toHaveBeenCalled()
+  })
+
+  it('creates ownership and enqueues miru_drop for each character', async () => {
+    const pool = [
+      { id: 'c1', rarity: 'COMMON', name: 'Naruto', series: 'Naruto', imageUrl: 'img1', coinValue: 30 },
+    ]
+    vi.mocked(prisma.characterOwnership.deleteMany).mockResolvedValue({ count: 0 } as any)
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([])
+    vi.mocked(prisma.character.findMany).mockResolvedValue(pool as any)
+    vi.mocked(prisma.characterOwnership.create).mockResolvedValue({ id: 'own1' } as any)
+
+    const mockRedis = { set: vi.fn() }
+    vi.mocked(getRedis).mockReturnValue(mockRedis as any)
+
+    const result = await executeMiruDrop('gameGroup1', 'user@s.whatsapp.net', 1)
+    expect(result.dropped).toBe(1)
+    expect(prisma.characterOwnership.create).toHaveBeenCalledWith({
+      data: { characterId: 'c1', groupId: 'gameGroup1', ownerJid: null },
+    })
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      'miru:drop:active:gameGroup1:own1',
+      expect.any(String),
+      'EX',
+      15,
+    )
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'miru_drop', dropId: 'own1' }),
+      expect.any(Object),
+    )
+  })
+})
+
+describe('handleMiruCapture', () => {
+  it('throws already_captured when updateMany count is 0', async () => {
+    vi.mocked(prisma.characterOwnership.updateMany).mockResolvedValue({ count: 0 } as any)
+
+    await expect(
+      handleMiruCapture('gameGroup1', 'own1', 'user@s.whatsapp.net')
+    ).rejects.toThrow('already_captured')
+  })
+
+  it('sends capture confirmation message on success', async () => {
+    vi.mocked(prisma.characterOwnership.updateMany).mockResolvedValue({ count: 1 } as any)
+    vi.mocked(prisma.characterOwnership.findUnique).mockResolvedValue({
+      id: 'own1',
+      character: { name: 'Naruto', rarity: 'COMMON', series: 'Naruto', coinValue: 30 },
+    } as any)
+
+    await handleMiruCapture('gameGroup1', 'own1', '5511999@s.whatsapp.net')
+
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'text',
+        groupId: 'gameGroup1',
+        content: expect.stringContaining('Naruto'),
+        mentions: ['5511999@s.whatsapp.net'],
       })
     )
   })

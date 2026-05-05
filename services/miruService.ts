@@ -239,3 +239,111 @@ export async function getDropPool(gameGroupId: string): Promise<PoolCharacter[]>
 
   return chars.filter((c) => !ownedIds.has(c.id)) as PoolCharacter[]
 }
+
+// ── Drop execution ─────────────────────────────────────────────────────────
+
+const MIRU_DROP_TTL_SEC = 15
+
+const RARITY_EMOJI: Record<CharacterRarity, string> = {
+  COMMON: '⚪',
+  RARE: '🔵',
+  EPIC: '🟣',
+  LEGENDARY: '🟡',
+}
+
+export async function executeMiruDrop(
+  gameGroupId: string,
+  rolledBy: string,
+  count: number
+): Promise<{ dropped: number }> {
+  const redis = getRedis()
+  const pool = await getDropPool(gameGroupId)
+
+  if (pool.length === 0) {
+    await enqueueSendMessage({
+      groupId: gameGroupId,
+      type: 'text',
+      content: 'Todos os personagens já foram capturados neste grupo! Novos personagens em breve.',
+    })
+    return { dropped: 0 }
+  }
+
+  const selectedInBatch = new Set<string>()
+  const toDrop = Math.min(count, pool.length)
+
+  for (let i = 0; i < toDrop; i++) {
+    const available = pool.filter((c) => !selectedInBatch.has(c.id))
+    if (available.length === 0) break
+
+    const characterId = selectByRarity(available)
+    const character = available.find((c) => c.id === characterId)!
+    selectedInBatch.add(characterId)
+
+    const ownership = await prisma.characterOwnership.create({
+      data: { characterId, groupId: gameGroupId, ownerJid: null },
+    })
+
+    const expiresAt = Date.now() + MIRU_DROP_TTL_SEC * 1000
+    await redis.set(
+      `miru:drop:active:${gameGroupId}:${ownership.id}`,
+      JSON.stringify({ characterId, rolledBy, expiresAt }),
+      'EX',
+      MIRU_DROP_TTL_SEC,
+    )
+
+    const caption = [
+      `✨ *${character.name}*`,
+      `📺 _${character.series}_`,
+      `${RARITY_EMOJI[character.rarity]} *${character.rarity}* • 🪙 ${character.coinValue} coins`,
+      ``,
+      `_Reaja para capturar!_`,
+    ].join('\n')
+
+    await enqueueSendMessage(
+      {
+        type: 'miru_drop',
+        groupId: gameGroupId,
+        content: character.imageUrl,
+        caption,
+        dropId: ownership.id,
+      },
+      { delay: i * 3_000, idempotencyKey: `miru:${ownership.id}` },
+    )
+  }
+
+  return { dropped: toDrop }
+}
+
+// ── Capture ────────────────────────────────────────────────────────────────
+
+export async function handleMiruCapture(
+  gameGroupId: string,
+  ownershipId: string,
+  capturedBy: string,
+  rollMessageId?: string
+): Promise<void> {
+  const result = await prisma.characterOwnership.updateMany({
+    where: { id: ownershipId, ownerJid: null },
+    data: { ownerJid: capturedBy, capturedAt: new Date(), rollMessageId },
+  })
+
+  if (result.count === 0) {
+    throw new Error('already_captured')
+  }
+
+  const ownership = await prisma.characterOwnership.findUnique({
+    where: { id: ownershipId },
+    include: { character: { select: { name: true, rarity: true, series: true, coinValue: true } } },
+  })
+  if (!ownership) return
+
+  const { character } = ownership
+  const number = capturedBy.split('@')[0]
+
+  await enqueueSendMessage({
+    groupId: gameGroupId,
+    type: 'text',
+    content: `🎉 @${number} capturou *${character.name}*! ${RARITY_EMOJI[character.rarity as CharacterRarity]} _${character.series}_ • 🪙 ${character.coinValue} coins`,
+    mentions: [capturedBy],
+  })
+}
