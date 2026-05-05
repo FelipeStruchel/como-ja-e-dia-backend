@@ -53,3 +53,15 @@ export function requireRole(...slugs: string[]) {
     next();
   };
 }
+
+export function requireWorkerOrRole(...slugs: string[]) {
+  const roleMiddleware = requireRole(...slugs);
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const workerSecret = process.env.WORKER_API_SECRET;
+    if (workerSecret && req.headers["x-worker-secret"] === workerSecret) {
+      next();
+      return;
+    }
+    await requireAuth(req, res, () => roleMiddleware(req, res, next));
+  };
+}
