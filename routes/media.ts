@@ -107,7 +107,7 @@ export function registerMediaRoutes(
     fileStream.pipe(res);
   });
 
-  app.get("/media", requireAuth, async (req, res) => {
+  app.get("/media", async (req, res) => {
     try {
       const type = req.query.type as string | undefined;
       const scope = (req.query.scope || "media").toString();
