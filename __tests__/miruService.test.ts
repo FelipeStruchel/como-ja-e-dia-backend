@@ -47,6 +47,8 @@ import {
   consumeRolls,
   getRollState,
   ROLL_ALLOWANCE,
+  selectByRarity,
+  getDropPool,
 } from '../services/miruService.js'
 import { prisma } from '../services/db.js'
 import { getRedis } from '../services/redis.js'
@@ -196,5 +198,58 @@ describe('getRollState', () => {
     const state = await getRollState('gameGroup1', 'user1@s.whatsapp.net')
     expect(state.used).toBe(0)
     expect(state.windowStart).toBeGreaterThan(0)
+  })
+})
+
+describe('selectByRarity', () => {
+  const pool = [
+    { id: 'c1', rarity: 'COMMON' as const, name: 'A', series: 'S', imageUrl: 'u', coinValue: 10 },
+    { id: 'c2', rarity: 'RARE' as const, name: 'B', series: 'S', imageUrl: 'u', coinValue: 20 },
+    { id: 'c3', rarity: 'EPIC' as const, name: 'C', series: 'S', imageUrl: 'u', coinValue: 40 },
+    { id: 'c4', rarity: 'LEGENDARY' as const, name: 'D', series: 'S', imageUrl: 'u', coinValue: 80 },
+  ]
+
+  it('always returns an id from the pool', () => {
+    const ids = new Set(pool.map(c => c.id))
+    for (let i = 0; i < 100; i++) {
+      expect(ids.has(selectByRarity(pool))).toBe(true)
+    }
+  })
+
+  it('returns an id when pool has only one rarity bucket', () => {
+    const legendaryOnly = [pool[3]]
+    const ids = new Set(legendaryOnly.map(c => c.id))
+    for (let i = 0; i < 50; i++) {
+      expect(ids.has(selectByRarity(legendaryOnly))).toBe(true)
+    }
+  })
+})
+
+describe('getDropPool', () => {
+  it('excludes characters with ownership records', async () => {
+    vi.mocked(prisma.characterOwnership.deleteMany).mockResolvedValue({ count: 0 } as any)
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([
+      { characterId: 'c1' },
+    ] as any)
+    vi.mocked(prisma.character.findMany).mockResolvedValue([
+      { id: 'c1', rarity: 'COMMON', name: 'A', series: 'S', imageUrl: 'u', coinValue: 10 },
+      { id: 'c2', rarity: 'RARE', name: 'B', series: 'S', imageUrl: 'u', coinValue: 20 },
+    ] as any)
+
+    const pool = await getDropPool('gameGroup1')
+    expect(pool.map(c => c.id)).toEqual(['c2'])
+  })
+
+  it('cleans up expired pending ownerships before querying', async () => {
+    vi.mocked(prisma.characterOwnership.deleteMany).mockResolvedValue({ count: 1 } as any)
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([])
+    vi.mocked(prisma.character.findMany).mockResolvedValue([])
+
+    await getDropPool('gameGroup1')
+    expect(prisma.characterOwnership.deleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ ownerJid: null }),
+      })
+    )
   })
 })

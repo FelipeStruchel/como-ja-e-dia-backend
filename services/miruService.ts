@@ -179,3 +179,63 @@ export async function consumeRolls(
   )
   return { allowed, remaining: newRemaining, resetsInSec }
 }
+
+// ── Drop pool & weighted selection ─────────────────────────────────────────
+
+const RARITY_WEIGHTS: Record<CharacterRarity, number> = {
+  LEGENDARY: 5,
+  EPIC: 15,
+  RARE: 35,
+  COMMON: 45,
+}
+
+type PoolCharacter = {
+  id: string
+  rarity: CharacterRarity
+  name: string
+  series: string
+  imageUrl: string
+  coinValue: number
+}
+
+export function selectByRarity(pool: PoolCharacter[]): string {
+  const entries = Object.entries(RARITY_WEIGHTS) as Array<[CharacterRarity, number]>
+  const total = entries.reduce((s, [, w]) => s + w, 0)
+  let rand = Math.random() * total
+  let targetRarity: CharacterRarity = 'COMMON'
+
+  for (const [rarity, weight] of entries) {
+    rand -= weight
+    if (rand <= 0) {
+      targetRarity = rarity
+      break
+    }
+  }
+
+  const bucket = pool.filter((c) => c.rarity === targetRarity)
+  const candidates = bucket.length > 0 ? bucket : pool
+  return candidates[Math.floor(Math.random() * candidates.length)].id
+}
+
+export async function getDropPool(gameGroupId: string): Promise<PoolCharacter[]> {
+  await prisma.characterOwnership.deleteMany({
+    where: {
+      groupId: gameGroupId,
+      ownerJid: null,
+      capturedAt: { lt: new Date(Date.now() - 30_000) },
+    },
+  })
+
+  const owned = await prisma.characterOwnership.findMany({
+    where: { groupId: gameGroupId },
+    select: { characterId: true },
+  })
+  const ownedIds = new Set(owned.map((o) => o.characterId))
+
+  const chars = await prisma.character.findMany({
+    where: { active: true },
+    select: { id: true, rarity: true, name: true, series: true, imageUrl: true, coinValue: true },
+  })
+
+  return chars.filter((c) => !ownedIds.has(c.id)) as PoolCharacter[]
+}
