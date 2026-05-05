@@ -159,3 +159,51 @@ model PokemonDrop {
   capturedBy String?
   capturedAt DateTime?
 }
+
+enum CharacterCategory {
+  ANIME
+  SERIES
+  MOVIE
+  STREAMER
+}
+
+enum CharacterRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+model Character {
+  id              String               @id @default(cuid())
+  name            String
+  series          String
+  category        CharacterCategory
+  imageUrl        String
+  rarity          CharacterRarity
+  popularityScore Float
+  coinValue       Int
+  active          Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  ownerships      CharacterOwnership[]
+}
+
+model CharacterOwnership {
+  id            String    @id @default(cuid())
+  characterId   String
+  groupId       String
+  ownerJid      String?
+  capturedAt    DateTime  @default(now())
+  rollMessageId String?
+  character     Character @relation(fields: [characterId], references: [id])
+
+  @@unique([characterId, groupId])
+}
+
+model LinkedGroup {
+  id          String   @id @default(cuid())
+  mainGroupId String   @unique
+  gameGroupId String   @unique
+  createdAt   DateTime @default(now())
+}
