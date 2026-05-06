@@ -51,6 +51,12 @@ import {
   getDropPool,
   executeMiruDrop,
   handleMiruCapture,
+  getAlbum,
+  getTopCollectors,
+  getLinkedGroup,
+  getLinkedGroupByGameId,
+  createLinkedGroup,
+  resolveGameGroupId,
 } from '../services/miruService.js'
 import { prisma } from '../services/db.js'
 import { getRedis } from '../services/redis.js'
@@ -330,5 +336,46 @@ describe('handleMiruCapture', () => {
         mentions: ['5511999@s.whatsapp.net'],
       })
     )
+  })
+})
+
+describe('getAlbum', () => {
+  it('returns characters in the user collection', async () => {
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([
+      { character: { name: 'Naruto', series: 'Naruto', rarity: 'EPIC', coinValue: 300 } },
+    ] as any)
+
+    const result = await getAlbum('gameGroup1', 'user@s.whatsapp.net')
+    expect(result).toEqual([{ name: 'Naruto', series: 'Naruto', rarity: 'EPIC', coinValue: 300 }])
+    expect(prisma.characterOwnership.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { groupId: 'gameGroup1', ownerJid: 'user@s.whatsapp.net' },
+      })
+    )
+  })
+})
+
+describe('resolveGameGroupId', () => {
+  it('returns gameGroupId when called with mainGroupId', async () => {
+    vi.mocked(prisma.linkedGroup.findUnique)
+      .mockResolvedValueOnce({ gameGroupId: 'game1' } as any)
+
+    const result = await resolveGameGroupId('main1')
+    expect(result).toBe('game1')
+  })
+
+  it('returns gameGroupId when called with gameGroupId itself', async () => {
+    vi.mocked(prisma.linkedGroup.findUnique)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ gameGroupId: 'game1' } as any)
+
+    const result = await resolveGameGroupId('game1')
+    expect(result).toBe('game1')
+  })
+
+  it('returns null when group is not linked', async () => {
+    vi.mocked(prisma.linkedGroup.findUnique).mockResolvedValue(null)
+    const result = await resolveGameGroupId('unknown')
+    expect(result).toBeNull()
   })
 })

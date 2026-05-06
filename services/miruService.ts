@@ -314,6 +314,74 @@ export async function executeMiruDrop(
   return { dropped: toDrop }
 }
 
+// ── Album & leaderboard ────────────────────────────────────────────────────
+
+export async function getAlbum(gameGroupId: string, ownerJid: string) {
+  const ownerships = await prisma.characterOwnership.findMany({
+    where: { groupId: gameGroupId, ownerJid },
+    include: {
+      character: { select: { name: true, series: true, rarity: true, coinValue: true } },
+    },
+    orderBy: { capturedAt: 'desc' },
+  })
+  return ownerships.map((o) => o.character)
+}
+
+export async function getTopCollectors(
+  gameGroupId: string,
+  limit = 10
+): Promise<Array<{ ownerJid: string; count: number; totalCoins: number }>> {
+  const raw = await prisma.characterOwnership.groupBy({
+    by: ['ownerJid'],
+    where: { groupId: gameGroupId, ownerJid: { not: null } },
+    _count: { characterId: true },
+    orderBy: [{ _count: { characterId: 'desc' } }],
+    take: limit,
+  })
+
+  const all = await prisma.characterOwnership.findMany({
+    where: { groupId: gameGroupId, ownerJid: { not: null } },
+    include: { character: { select: { coinValue: true } } },
+  })
+
+  const coinMap = new Map<string, number>()
+  for (const o of all) {
+    if (!o.ownerJid) continue
+    coinMap.set(o.ownerJid, (coinMap.get(o.ownerJid) ?? 0) + o.character.coinValue)
+  }
+
+  const result = raw.map((r) => ({
+    ownerJid: r.ownerJid!,
+    count: r._count.characterId,
+    totalCoins: coinMap.get(r.ownerJid!) ?? 0,
+  }))
+
+  result.sort((a, b) => b.count - a.count || b.totalCoins - a.totalCoins)
+  return result.slice(0, limit)
+}
+
+// ── Linked group helpers ───────────────────────────────────────────────────
+
+export async function getLinkedGroup(mainGroupId: string) {
+  return prisma.linkedGroup.findUnique({ where: { mainGroupId } })
+}
+
+export async function getLinkedGroupByGameId(gameGroupId: string) {
+  return prisma.linkedGroup.findUnique({ where: { gameGroupId } })
+}
+
+export async function createLinkedGroup(mainGroupId: string, gameGroupId: string) {
+  return prisma.linkedGroup.create({ data: { mainGroupId, gameGroupId } })
+}
+
+export async function resolveGameGroupId(groupId: string): Promise<string | null> {
+  const asMain = await prisma.linkedGroup.findUnique({ where: { mainGroupId: groupId } })
+  if (asMain) return asMain.gameGroupId
+  const asGame = await prisma.linkedGroup.findUnique({ where: { gameGroupId: groupId } })
+  if (asGame) return asGame.gameGroupId
+  return null
+}
+
 // ── Capture ────────────────────────────────────────────────────────────────
 
 export async function handleMiruCapture(
