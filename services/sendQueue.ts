@@ -16,7 +16,7 @@ const queue = new Queue(queueName, { connection });
 
 export interface SendPayload {
   groupId?: string;
-  type: "text" | "image" | "video" | "pokemon_drop";
+  type: "text" | "image" | "video" | "pokemon_drop" | "miru_drop";
   dropId?: string;
   content: string;
   caption?: string;

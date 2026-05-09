@@ -28,6 +28,7 @@ import { registerScheduleRoutes } from "./routes/schedules.js";
 import { startScheduledWorker, resyncSchedules } from "./services/scheduledJobs.js";
 import { registerWhatsAppQrRoutes } from "./routes/whatsappQr.js";
 import { registerDropRoutes } from "./routes/drops.js";
+import { registerMiruRoutes } from "./routes/miru.js";
 import { startDropScheduler } from "./services/dropScheduler.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +75,7 @@ registerPersonaRoutes(app);
 registerScheduleRoutes(app);
 registerWhatsAppQrRoutes(app);
 registerDropRoutes(app);
+registerMiruRoutes(app);
 
 app.get("/db-status", async (_req, res) => {
   try {
