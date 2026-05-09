@@ -12,4 +12,7 @@ export enum CommandType {
   Ajuda = "ajuda",
   UsageError = "usage_error",
   ForceSpawn = "forcespawn",
+  Miru = "miru",
+  Album = "album",
+  Top = "top",
 }
