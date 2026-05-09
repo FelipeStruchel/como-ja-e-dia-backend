@@ -887,7 +887,7 @@ export function createCommandProcessor({
     const isGameGroup = await prismaClient.linkedGroup.findFirst({ where: { gameGroupId: msg.from } })
     if (!isGameGroup) {
       const isMainGroup = await prismaClient.linkedGroup.findFirst({ where: { mainGroupId: msg.from } })
-      if (isMainGroup || msg.isGroup) {
+      if (isMainGroup) {
         await enqueueFn({
           groupId: msg.from, type: 'text',
           content: '🎮 Use !miru no grupo de jogo Miru! Use !jogo para entrar no grupo.',

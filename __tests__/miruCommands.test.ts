@@ -16,7 +16,6 @@ vi.mock('../services/sendQueue.js', () => ({
 
 vi.mock('../services/miruService.js', () => ({
   consumeRolls: vi.fn(),
-  getRollState: vi.fn(),
   executeMiruDrop: vi.fn(),
   getAlbum: vi.fn(),
   getTopCollectors: vi.fn(),
@@ -108,6 +107,30 @@ describe('!miru command', () => {
       expect.objectContaining({ type: 'text', content: expect.stringContaining('2 drops') }),
       expect.objectContaining({ delay: 6000 }),
     )
+  })
+
+  it('silently returns when called in a random group with no link', async () => {
+    vi.mocked(prisma.linkedGroup.findFirst)
+      .mockResolvedValueOnce(null)  // not a game group
+      .mockResolvedValueOnce(null)  // not a main group either
+
+    const process = makeProcessor()
+    await process(makeMsg('!miru', 'random-group@g.us'))
+
+    expect(enqueueSendMessage).not.toHaveBeenCalled()
+    expect(consumeRolls).not.toHaveBeenCalled()
+  })
+
+  it('does not send summary when executeMiruDrop returns dropped=0', async () => {
+    vi.mocked(prisma.linkedGroup.findFirst).mockResolvedValueOnce({ gameGroupId: GAME_GROUP_ID } as any)
+    vi.mocked(consumeRolls).mockResolvedValue({ allowed: 1, remaining: 9, resetsInSec: 3600 })
+    vi.mocked(executeMiruDrop).mockResolvedValue({ dropped: 0 })
+
+    const process = makeProcessor()
+    await process(makeMsg('!miru'))
+
+    expect(executeMiruDrop).toHaveBeenCalled()
+    expect(enqueueSendMessage).not.toHaveBeenCalled()
   })
 })
 
