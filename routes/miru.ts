@@ -1,4 +1,7 @@
 import type { Express } from 'express'
+import { createReadStream } from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import {
   createCharacter,
@@ -9,7 +12,11 @@ import {
   getLinkedGroup,
   createLinkedGroup,
 } from '../services/miruService.js'
+import { IMAGE_DIR } from '../services/characterImageService.js'
 import { log } from '../services/logger.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 export function registerMiruRoutes(app: Express): void {
   // Public: list characters
@@ -105,6 +112,16 @@ export function registerMiruRoutes(app: Express): void {
     const linked = await getLinkedGroup(req.params.mainGroupId)
     if (!linked) { res.status(404).json({ error: 'not found' }); return }
     res.json(linked)
+  })
+
+  app.get('/characters/images/anilist/:externalId', (req, res) => {
+    const id = parseInt(req.params.externalId, 10)
+    if (isNaN(id)) { res.status(400).end(); return }
+    const filePath = path.join(IMAGE_DIR, `${id}.jpg`)
+    const stream = createReadStream(filePath)
+    stream.on('open', () => res.setHeader('Content-Type', 'image/jpeg'))
+    stream.on('error', () => res.status(404).end())
+    stream.pipe(res)
   })
 
   // Internal: create linked group (called by worker after groupCreate)

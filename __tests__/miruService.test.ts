@@ -6,8 +6,13 @@ vi.mock('../services/db.js', () => ({
       create: vi.fn(),
       findMany: vi.fn(),
       findUniqueOrThrow: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
       count: vi.fn(),
+    },
+    anilistCharacter: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
     },
     characterOwnership: {
       create: vi.fn(),
@@ -238,7 +243,7 @@ describe('getDropPool', () => {
   it('excludes characters with ownership records', async () => {
     vi.mocked(prisma.characterOwnership.deleteMany).mockResolvedValue({ count: 0 } as any)
     vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([
-      { characterId: 'c1' },
+      { characterRef: 'c1', source: 'MANUAL' },
     ] as any)
     vi.mocked(prisma.character.findMany).mockResolvedValue([
       { id: 'c1', rarity: 'COMMON', name: 'A', series: 'S', imageUrl: 'u', coinValue: 10 },
@@ -295,7 +300,7 @@ describe('executeMiruDrop', () => {
     const result = await executeMiruDrop('gameGroup1', 'user@s.whatsapp.net', 1)
     expect(result.dropped).toBe(1)
     expect(prisma.characterOwnership.create).toHaveBeenCalledWith({
-      data: { characterId: 'c1', groupId: 'gameGroup1', ownerJid: null },
+      data: { characterRef: 'c1', source: 'MANUAL', groupId: 'gameGroup1', ownerJid: null },
     })
     expect(mockRedis.set).toHaveBeenCalledWith(
       'miru:drop:active:gameGroup1:own1',
@@ -323,7 +328,11 @@ describe('handleMiruCapture', () => {
     vi.mocked(prisma.characterOwnership.updateMany).mockResolvedValue({ count: 1 } as any)
     vi.mocked(prisma.characterOwnership.findUnique).mockResolvedValue({
       id: 'own1',
-      character: { name: 'Naruto', rarity: 'COMMON', series: 'Naruto', coinValue: 30 },
+      characterRef: 'c1',
+      source: 'MANUAL',
+    } as any)
+    vi.mocked(prisma.character.findUnique).mockResolvedValue({
+      name: 'Naruto', rarity: 'COMMON', series: 'Naruto', coinValue: 30,
     } as any)
 
     await handleMiruCapture('gameGroup1', 'own1', '5511999@s.whatsapp.net')
@@ -342,8 +351,11 @@ describe('handleMiruCapture', () => {
 describe('getAlbum', () => {
   it('returns characters in the user collection', async () => {
     vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([
-      { character: { name: 'Naruto', series: 'Naruto', rarity: 'EPIC', coinValue: 300 } },
+      { characterRef: 'c1', source: 'MANUAL' },
     ] as any)
+    vi.mocked(prisma.character.findUnique).mockResolvedValue({
+      name: 'Naruto', series: 'Naruto', rarity: 'EPIC', coinValue: 300,
+    } as any)
 
     const result = await getAlbum('gameGroup1', 'user@s.whatsapp.net')
     expect(result).toEqual([{ name: 'Naruto', series: 'Naruto', rarity: 'EPIC', coinValue: 300 }])
@@ -352,6 +364,18 @@ describe('getAlbum', () => {
         where: { groupId: 'gameGroup1', ownerJid: 'user@s.whatsapp.net' },
       })
     )
+  })
+
+  it('returns AniList characters in the user collection', async () => {
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([
+      { characterRef: '42', source: 'ANILIST' },
+    ] as any)
+    vi.mocked(prisma.anilistCharacter.findUnique).mockResolvedValue({
+      name: 'Naruto', series: 'Naruto', rarity: 'LEGENDARY', coinValue: 720,
+    } as any)
+
+    const result = await getAlbum('gameGroup1', 'user@s.whatsapp.net')
+    expect(result).toEqual([{ name: 'Naruto', series: 'Naruto', rarity: 'LEGENDARY', coinValue: 720 }])
   })
 })
 
@@ -377,5 +401,51 @@ describe('resolveGameGroupId', () => {
     vi.mocked(prisma.linkedGroup.findUnique).mockResolvedValue(null)
     const result = await resolveGameGroupId('unknown')
     expect(result).toBeNull()
+  })
+})
+
+describe('getTopCollectors', () => {
+  it('aggregates coins from ANILIST ownership rows', async () => {
+    vi.mocked(prisma.characterOwnership.groupBy).mockResolvedValue([
+      { ownerJid: 'user1', _count: { characterRef: 3 } } as any,
+      { ownerJid: 'user2', _count: { characterRef: 1 } } as any,
+    ])
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([
+      { characterRef: '1', source: 'ANILIST', ownerJid: 'user1' } as any,
+      { characterRef: '2', source: 'ANILIST', ownerJid: 'user1' } as any,
+      { characterRef: '3', source: 'ANILIST', ownerJid: 'user1' } as any,
+      { characterRef: '4', source: 'ANILIST', ownerJid: 'user2' } as any,
+    ])
+    vi.mocked(prisma.anilistCharacter.findMany).mockResolvedValue([
+      { externalId: 1, coinValue: 50 },
+      { externalId: 2, coinValue: 50 },
+      { externalId: 3, coinValue: 50 },
+      { externalId: 4, coinValue: 50 },
+    ] as any)
+
+    const result = await getTopCollectors('game1', 10)
+
+    expect(result).toEqual([
+      { ownerJid: 'user1', count: 3, totalCoins: 150 },
+      { ownerJid: 'user2', count: 1, totalCoins: 50 },
+    ])
+  })
+
+  it('aggregates coins from MANUAL ownership rows', async () => {
+    vi.mocked(prisma.characterOwnership.groupBy).mockResolvedValue([
+      { ownerJid: 'user1', _count: { characterRef: 2 } } as any,
+    ])
+    vi.mocked(prisma.characterOwnership.findMany).mockResolvedValue([
+      { characterRef: 'manual-a', source: 'MANUAL', ownerJid: 'user1' } as any,
+      { characterRef: 'manual-b', source: 'MANUAL', ownerJid: 'user1' } as any,
+    ])
+    vi.mocked(prisma.character.findMany).mockResolvedValue([
+      { id: 'manual-a', coinValue: 25 },
+      { id: 'manual-b', coinValue: 25 },
+    ] as any)
+
+    const result = await getTopCollectors('game1', 10)
+
+    expect(result[0].totalCoins).toBe(50)
   })
 })

@@ -122,7 +122,7 @@ export async function softDeleteCharacter(id: string): Promise<void> {
 // ── Roll allowance ─────────────────────────────────────────────────────────
 
 export const ROLL_ALLOWANCE = 10
-const ROLL_WINDOW_MS = 3_600_000
+export const ROLL_WINDOW_MS = 3_600_000
 
 export interface RollState {
   used: number
@@ -227,10 +227,10 @@ export async function getDropPool(gameGroupId: string): Promise<PoolCharacter[]>
   })
 
   const owned = await prisma.characterOwnership.findMany({
-    where: { groupId: gameGroupId },
-    select: { characterId: true },
+    where: { groupId: gameGroupId, source: 'MANUAL' },
+    select: { characterRef: true },
   })
-  const ownedIds = new Set(owned.map((o) => o.characterId))
+  const ownedIds = new Set(owned.map((o) => o.characterRef))
 
   const chars = await prisma.character.findMany({
     where: { active: true },
@@ -280,13 +280,13 @@ export async function executeMiruDrop(
     selectedInBatch.add(characterId)
 
     const ownership = await prisma.characterOwnership.create({
-      data: { characterId, groupId: gameGroupId, ownerJid: null },
+      data: { characterRef: characterId, source: 'MANUAL', groupId: gameGroupId, ownerJid: null },
     })
 
     const expiresAt = Date.now() + MIRU_DROP_TTL_SEC * 1000
     await redis.set(
       `miru:drop:active:${gameGroupId}:${ownership.id}`,
-      JSON.stringify({ characterId, rolledBy, expiresAt }),
+      JSON.stringify({ characterRef: characterId, source: 'MANUAL', rolledBy, expiresAt }),
       'EX',
       MIRU_DROP_TTL_SEC,
     )
@@ -319,12 +319,28 @@ export async function executeMiruDrop(
 export async function getAlbum(gameGroupId: string, ownerJid: string) {
   const ownerships = await prisma.characterOwnership.findMany({
     where: { groupId: gameGroupId, ownerJid },
-    include: {
-      character: { select: { name: true, series: true, rarity: true, coinValue: true } },
-    },
     orderBy: { capturedAt: 'desc' },
   })
-  return ownerships.map((o) => o.character)
+
+  const results: Array<{ name: string; series: string; rarity: string; coinValue: number }> = []
+
+  for (const o of ownerships) {
+    if (o.source === 'MANUAL') {
+      const c = await prisma.character.findUnique({
+        where: { id: o.characterRef },
+        select: { name: true, series: true, rarity: true, coinValue: true },
+      })
+      if (c) results.push(c)
+    } else {
+      const c = await prisma.anilistCharacter.findUnique({
+        where: { externalId: parseInt(o.characterRef, 10) },
+        select: { name: true, series: true, rarity: true, coinValue: true },
+      })
+      if (c) results.push(c)
+    }
+  }
+
+  return results
 }
 
 export async function getTopCollectors(
@@ -334,25 +350,50 @@ export async function getTopCollectors(
   const raw = await prisma.characterOwnership.groupBy({
     by: ['ownerJid'],
     where: { groupId: gameGroupId, ownerJid: { not: null } },
-    _count: { characterId: true },
-    orderBy: [{ _count: { characterId: 'desc' } }],
+    _count: { characterRef: true },
+    orderBy: [{ _count: { characterRef: 'desc' } }],
     take: limit,
   })
 
   const all = await prisma.characterOwnership.findMany({
     where: { groupId: gameGroupId, ownerJid: { not: null } },
-    include: { character: { select: { coinValue: true } } },
+    select: { ownerJid: true, characterRef: true, source: true },
   })
+
+  const manualRefs = all.filter((o) => o.source === 'MANUAL').map((o) => o.characterRef)
+  const anilistIds = all
+    .filter((o) => o.source === 'ANILIST')
+    .map((o) => parseInt(o.characterRef, 10))
+    .filter((id) => !Number.isNaN(id))
+
+  const [manualChars, anilistChars] = await Promise.all([
+    manualRefs.length > 0
+      ? prisma.character.findMany({ where: { id: { in: manualRefs } }, select: { id: true, coinValue: true } })
+      : Promise.resolve([]),
+    anilistIds.length > 0
+      ? prisma.anilistCharacter.findMany({ where: { externalId: { in: anilistIds } }, select: { externalId: true, coinValue: true } })
+      : Promise.resolve([]),
+  ])
+
+  const manualCoinMap = new Map(manualChars.map((c) => [c.id, c.coinValue]))
+  const anilistCoinMap = new Map(anilistChars.map((c) => [c.externalId, c.coinValue]))
 
   const coinMap = new Map<string, number>()
   for (const o of all) {
     if (!o.ownerJid) continue
-    coinMap.set(o.ownerJid, (coinMap.get(o.ownerJid) ?? 0) + o.character.coinValue)
+    let coinValue = 0
+    if (o.source === 'MANUAL') {
+      coinValue = manualCoinMap.get(o.characterRef) ?? 0
+    } else {
+      const id = parseInt(o.characterRef, 10)
+      coinValue = Number.isNaN(id) ? 0 : (anilistCoinMap.get(id) ?? 0)
+    }
+    coinMap.set(o.ownerJid, (coinMap.get(o.ownerJid) ?? 0) + coinValue)
   }
 
   const result = raw.map((r) => ({
     ownerJid: r.ownerJid!,
-    count: r._count.characterId,
+    count: r._count.characterRef,
     totalCoins: coinMap.get(r.ownerJid!) ?? 0,
   }))
 
@@ -401,11 +442,27 @@ export async function handleMiruCapture(
 
   const ownership = await prisma.characterOwnership.findUnique({
     where: { id: ownershipId },
-    include: { character: { select: { name: true, rarity: true, series: true, coinValue: true } } },
   })
   if (!ownership) return
 
-  const { character } = ownership
+  type CharData = { name: string; rarity: string; series: string; coinValue: number }
+  let character: CharData | null = null
+
+  if (ownership.source === 'MANUAL') {
+    character = await prisma.character.findUnique({
+      where: { id: ownership.characterRef },
+      select: { name: true, rarity: true, series: true, coinValue: true },
+    })
+  } else {
+    const externalId = parseInt(ownership.characterRef, 10)
+    if (Number.isNaN(externalId)) return
+    const ac = await prisma.anilistCharacter.findUnique({
+      where: { externalId },
+      select: { name: true, rarity: true, series: true, coinValue: true },
+    })
+    character = ac
+  }
+  if (!character) return
   const number = capturedBy.split('@')[0]
 
   await enqueueSendMessage({

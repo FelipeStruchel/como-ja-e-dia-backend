@@ -30,6 +30,7 @@ import { registerWhatsAppQrRoutes } from "./routes/whatsappQr.js";
 import { registerDropRoutes } from "./routes/drops.js";
 import { registerMiruRoutes } from "./routes/miru.js";
 import { startDropScheduler } from "./services/dropScheduler.js";
+import { fetchSourceMeta } from "./services/anilistService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +54,32 @@ try {
   const msg = err instanceof Error ? err.message : String(err);
   log(`Erro ao conectar ao PostgreSQL: ${msg}`, "error");
 }
+
+async function ensureSourceMeta(): Promise<void> {
+  if (!_dbConnected) return
+  try {
+    const count = await prisma.characterSourceMeta.count()
+    if (count > 0) return
+    log("CharacterSourceMeta vazio, buscando metadados do AniList...", "info")
+    const results = await fetchSourceMeta()
+    for (const { gender, totalCount } of results) {
+      await prisma.characterSourceMeta.upsert({
+        where: { source_gender: { source: "ANILIST", gender } },
+        create: { source: "ANILIST", gender, totalCount },
+        update: { totalCount },
+      })
+    }
+    log("CharacterSourceMeta populado.", "success")
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log(`Falha ao popular CharacterSourceMeta: ${msg}`, "warning")
+  }
+}
+
+void ensureSourceMeta()
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+setInterval(() => { void ensureSourceMeta() }, SEVEN_DAYS_MS)
 
 registerEventRoutes(app, { prisma, isDbConnected, tz: moment.tz, moment });
 registerAuthRoutes(app);

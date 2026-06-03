@@ -15,4 +15,9 @@ export enum CommandType {
   Miru = "miru",
   Album = "album",
   Top = "top",
+  Roll = "roll",
+  Rolla = "rolla",
+  Rollam = "rollam",
+  Rollah = "rollah",
+  MiruHelp = "miru_help",
 }
