@@ -6,6 +6,19 @@ import { log } from "../services/logger.js";
 import { generateAIAnalysis } from "../services/ai.js";
 import { CommandType } from "../types.js"
 import { executeDrop } from '../services/dropService.js';
+import {
+  consumeRolls,
+  executeMiruDrop,
+  getAlbum,
+  getTopCollectors,
+  resolveGameGroupId,
+  ROLL_ALLOWANCE,
+} from '../services/miruService.js'
+import {
+  drawRolls,
+  executeRollDrops,
+  type RollFilter,
+} from '../services/characterSyncService.js'
 
 function removeAccents(str: string): string {
   return removeAccentsLib(str || "");
@@ -71,11 +84,20 @@ export function createCommandProcessor({
   type AjudaCommand      = { type: CommandType.Ajuda }
   type UsageErrorCommand = { type: CommandType.UsageError; hint: string }
   type ForceSpawnCommand = { type: CommandType.ForceSpawn }
+  type MiruCommand  = { type: CommandType.Miru; count: number }
+  type AlbumCommand = { type: CommandType.Album }
+  type TopCommand   = { type: CommandType.Top }
+  type RollCommand    = { type: CommandType.Roll;    count: number }
+  type RollaCommand   = { type: CommandType.Rolla;   count: number }
+  type RollamCommand  = { type: CommandType.Rollam;  count: number }
+  type RollahCommand  = { type: CommandType.Rollah;  count: number }
+  type MiruHelpCommand = { type: CommandType.MiruHelp }
   type Command =
     | AllCommand | AnaliseCommand | PokemonsCommand | GaleriaCommand
     | GiveCommand | TradeCommand | AceitarCommand | RecusarCommand
     | ConfirmarCommand | CancelarCommand | AjudaCommand | UsageErrorCommand
-    | ForceSpawnCommand
+    | ForceSpawnCommand | MiruCommand | AlbumCommand | TopCommand
+    | RollCommand | RollaCommand | RollamCommand | RollahCommand | MiruHelpCommand
 
   function parseCommand(text: string): Command | null {
     const lowered = removeAccents((text || "").trim().toLowerCase());
@@ -126,6 +148,32 @@ export function createCommandProcessor({
     }
     if (/^!aceitar(\s|$)/i.test(text)) {
       return { type: CommandType.UsageError, hint: "❌ Uso correto: *!aceitar NomePokemon* (o que você dá em troca)" };
+    }
+
+    // !miru, !miru <n>, !miru all
+    if (lowered === '!miru') return { type: CommandType.Miru, count: 1 }
+    if (lowered === '!miru all') return { type: CommandType.Miru, count: ROLL_ALLOWANCE }
+    const miruNMatch = lowered.match(/^!miru\s+(\d+)$/)
+    if (miruNMatch) return { type: CommandType.Miru, count: parseInt(miruNMatch[1], 10) }
+
+    // !album, !album @pessoa
+    if (lowered === '!album' || /^!album\s/.test(lowered)) return { type: CommandType.Album }
+
+    // !top
+    if (lowered === '!top') return { type: CommandType.Top }
+
+    // !roll, !rolla, !rollam, !rollah
+    if (lowered === '!miru help') return { type: CommandType.MiruHelp }
+
+    const rollMatch = lowered.match(/^!(roll(?:a|am|ah)?)\s*(\d+)?$/)
+    if (rollMatch) {
+      const [, cmd, nStr] = rollMatch
+      const parsed = nStr ? parseInt(nStr, 10) : 1
+      const count = parsed < 1 ? 1 : parsed
+      if (cmd === 'roll')   return { type: CommandType.Roll,   count }
+      if (cmd === 'rolla')  return { type: CommandType.Rolla,  count }
+      if (cmd === 'rollam') return { type: CommandType.Rollam, count }
+      if (cmd === 'rollah') return { type: CommandType.Rollah, count }
     }
 
     return null;
@@ -772,6 +820,9 @@ export function createCommandProcessor({
       `!confirmar — confirma a troca após ver a contra-proposta`,
       `!recusar — recusa uma proposta recebida`,
       `!cancelar — desiste da troca após ver a contra-proposta`,
+      ``,
+      `*🎴 Miru*`,
+      `!miru help — ver comandos do sistema Miru`,
     ].join("\n")
 
     await enqueueFn({
@@ -857,14 +908,227 @@ export function createCommandProcessor({
     })
   }
 
+  async function handleMiruCommand(msg: IncomingMsg, count: number): Promise<void> {
+    const author = msg.author || ''
+    if (!author || !msg.from) return
+
+    const isGameGroup = await prismaClient.linkedGroup.findFirst({ where: { gameGroupId: msg.from } })
+    if (!isGameGroup) {
+      const isMainGroup = await prismaClient.linkedGroup.findFirst({ where: { mainGroupId: msg.from } })
+      if (isMainGroup) {
+        await enqueueFn({
+          groupId: msg.from, type: 'text',
+          content: '🎮 Use !miru no grupo de jogo Miru! Use !jogo para entrar no grupo.',
+          replyTo: msg.id,
+        })
+      }
+      return
+    }
+
+    const gameGroupId = msg.from
+    const { allowed, remaining, resetsInSec } = await consumeRolls(gameGroupId, author, count)
+
+    if (allowed === 0) {
+      const mins = Math.ceil(resetsInSec / 60)
+      await enqueueFn({
+        groupId: gameGroupId, type: 'text',
+        content: `❌ Sem rolls disponíveis. Reseta em ${mins} minuto${mins !== 1 ? 's' : ''}.`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const { dropped } = await executeMiruDrop(gameGroupId, author, allowed)
+    if (dropped === 0) return
+
+    const shortfall = count > allowed ? ` (${count - allowed} bloqueados por falta de rolls)` : ''
+    const mins = Math.ceil(resetsInSec / 60)
+
+    await enqueueFn(
+      {
+        groupId: gameGroupId, type: 'text',
+        content: `🎲 ${dropped} drop${dropped !== 1 ? 's' : ''} enviados${shortfall}. ${remaining} roll${remaining !== 1 ? 's' : ''} restantes. Reseta em ${mins} min.`,
+      },
+      { delay: dropped * 3_000 },
+    )
+  }
+
+  async function handleRollCommand(
+    msg: IncomingMsg,
+    filter: RollFilter,
+    count: number,
+  ): Promise<void> {
+    const author = msg.author || ''
+    if (!author || !msg.from) return
+
+    const isGameGroup = await prismaClient.linkedGroup.findFirst({ where: { gameGroupId: msg.from } })
+    if (!isGameGroup) {
+      const isMainGroup = await prismaClient.linkedGroup.findFirst({ where: { mainGroupId: msg.from } })
+      if (isMainGroup) {
+        const cmdName = filter === 'all' ? 'roll' : filter
+        await enqueueFn({
+          groupId: msg.from, type: 'text',
+          content: `🎮 Use !${cmdName} no grupo de jogo Miru! Use !jogo para entrar no grupo.`,
+          replyTo: msg.id,
+        })
+      }
+      return
+    }
+
+    const gameGroupId = msg.from
+    const { allowed, remaining: newRemaining, resetsInSec } = await consumeRolls(gameGroupId, author, count)
+    if (allowed === 0) {
+      const mins = Math.ceil(resetsInSec / 60)
+      await enqueueFn({
+        groupId: gameGroupId, type: 'text',
+        content: `❌ Sem rolls disponíveis. Reseta em ${mins} minuto${mins !== 1 ? 's' : ''}.`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const windowTtlSec = Math.max(1, resetsInSec)
+    const chars = await drawRolls(gameGroupId, author, filter, allowed, windowTtlSec)
+
+    const { dropped } = await executeRollDrops(gameGroupId, author, chars)
+    if (dropped === 0) return
+
+    const shortfall = count > allowed ? ` (${count - allowed} bloqueados por falta de rolls)` : ''
+    const mins = Math.ceil(resetsInSec / 60)
+    await enqueueFn(
+      {
+        groupId: gameGroupId, type: 'text',
+        content: `🎲 ${dropped} drop${dropped !== 1 ? 's' : ''} enviados${shortfall}. ${newRemaining} roll${newRemaining !== 1 ? 's' : ''} restantes. Reseta em ${mins} min.`,
+      },
+      { delay: dropped * 3_000 },
+    )
+  }
+
+  async function handleMiruHelpCommand(msg: IncomingMsg): Promise<void> {
+    if (!msg.from) return
+    await enqueueFn({
+      groupId: msg.from,
+      type: 'text',
+      content: [
+        '🎴 *Comandos Miru*',
+        '',
+        '*Rolls (use no grupo de jogo)*',
+        '`!roll [N]`   → personagem aleatório (qualquer fonte)',
+        '`!rolla [N]`  → personagem de anime aleatório',
+        '`!rollam [N]` → personagem de anime feminino',
+        '`!rollah [N]` → personagem de anime masculino',
+        '`!miru [N]`   → personagem do catálogo manual',
+        '',
+        '*Coleção*',
+        '`!album`      → seus personagens capturados',
+        '`!top`        → ranking do grupo',
+        '',
+        '_N = quantidade (padrão: 1). Máx 10 rolls por hora._',
+      ].join('\n'),
+      replyTo: msg.id,
+    })
+  }
+
+  async function handleAlbumCommand(msg: IncomingMsg): Promise<void> {
+    const author = msg.author || ''
+    if (!author || !msg.from) return
+
+    const gameGroupId = await resolveGameGroupId(msg.from)
+    if (!gameGroupId) {
+      await enqueueFn({
+        groupId: msg.from, type: 'text',
+        content: '🎮 Este grupo não tem grupo de jogo Miru vinculado. Use !jogo para criar.',
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const targetJid = msg.mentionedJids?.[0] ?? author
+    const collection = await getAlbum(gameGroupId, targetJid)
+    const number = targetJid.split('@')[0]
+
+    if (collection.length === 0) {
+      await enqueueFn({
+        groupId: msg.from, type: 'text',
+        content: targetJid === author
+          ? `Você não capturou nenhum personagem ainda! Use *!miru* no grupo de jogo para começar.`
+          : `@${number} ainda não capturou nenhum personagem.`,
+        mentions: [targetJid],
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const rarityEmoji: Record<string, string> = { COMMON: '⚪', RARE: '🔵', EPIC: '🟣', LEGENDARY: '🟡' }
+    const lines = collection.map(
+      (c, i) => `${i + 1}. ${rarityEmoji[c.rarity] ?? ''} *${c.name}* — _${c.series}_ — 🪙 ${c.coinValue}`
+    )
+    const totalCoins = collection.reduce((s, c) => s + c.coinValue, 0)
+
+    await enqueueFn({
+      groupId: msg.from, type: 'text',
+      content: [
+        `🎴 *Álbum de @${number}* — ${collection.length} personagem${collection.length !== 1 ? 'ns' : ''} — 🪙 ${totalCoins} coins`,
+        `${'─'.repeat(28)}`,
+        ...lines,
+      ].join('\n'),
+      mentions: [targetJid],
+    })
+  }
+
+  async function handleTopCommand(msg: IncomingMsg): Promise<void> {
+    if (!msg.from) return
+
+    const gameGroupId = await resolveGameGroupId(msg.from)
+    if (!gameGroupId) {
+      await enqueueFn({
+        groupId: msg.from, type: 'text',
+        content: '🎮 Este grupo não tem grupo de jogo Miru vinculado.',
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const top = await getTopCollectors(gameGroupId)
+    if (top.length === 0) {
+      await enqueueFn({
+        groupId: msg.from, type: 'text',
+        content: 'Ninguém capturou personagens ainda! Use *!miru* no grupo de jogo.',
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const mentions = top.map((t) => t.ownerJid)
+    const lines = top.map((t, i) => {
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`
+      return `${medal} @${t.ownerJid.split('@')[0]} — ${t.count} personagem${t.count !== 1 ? 'ns' : ''} — 🪙 ${t.totalCoins}`
+    })
+
+    await enqueueFn({
+      groupId: msg.from, type: 'text',
+      content: [`🏆 *Top Colecionadores Miru*`, `${'─'.repeat(28)}`, ...lines].join('\n'),
+      mentions,
+    })
+  }
+
   return async function processCommand(msg: IncomingMsg): Promise<void> {
     try {
       if (!msg || !msg.body) return;
-      if (!isFromAllowedGroup(msg)) return;
 
       const text = msg.body.trim();
       const cmd = parseCommand(text);
       if (!cmd) return;
+
+      const isMiruCmd = cmd.type === CommandType.Miru
+        || cmd.type === CommandType.Album
+        || cmd.type === CommandType.Top
+        || cmd.type === CommandType.Roll
+        || cmd.type === CommandType.Rolla
+        || cmd.type === CommandType.Rollam
+        || cmd.type === CommandType.Rollah
+        || cmd.type === CommandType.MiruHelp;
+      if (!isMiruCmd && !isFromAllowedGroup(msg)) return;
 
       if (cmd.type === CommandType.All) {
         await handleAllCommand(msg);
@@ -914,6 +1178,23 @@ export function createCommandProcessor({
         await handleForcespawnCommand(msg);
         return;
       }
+      if (cmd.type === CommandType.Miru) {
+        await handleMiruCommand(msg, cmd.count)
+        return
+      }
+      if (cmd.type === CommandType.Album) {
+        await handleAlbumCommand(msg)
+        return
+      }
+      if (cmd.type === CommandType.Top) {
+        await handleTopCommand(msg)
+        return
+      }
+      if (cmd.type === CommandType.Roll)     return handleRollCommand(msg, 'all',          cmd.count)
+      if (cmd.type === CommandType.Rolla)    return handleRollCommand(msg, 'anime',        cmd.count)
+      if (cmd.type === CommandType.Rollam)   return handleRollCommand(msg, 'anime_female', cmd.count)
+      if (cmd.type === CommandType.Rollah)   return handleRollCommand(msg, 'anime_male',   cmd.count)
+      if (cmd.type === CommandType.MiruHelp) return handleMiruHelpCommand(msg)
       if (cmd.type === CommandType.UsageError) {
         await enqueueFn({ groupId: msg.from, type: "text", content: cmd.hint, replyTo: msg.id });
         return;

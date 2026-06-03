@@ -159,3 +159,109 @@ model PokemonDrop {
   capturedBy String?
   capturedAt DateTime?
 }
+
+enum CharacterCategory {
+  ANIME
+  SERIES
+  MOVIE
+  STREAMER
+}
+
+enum CharacterRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum CharacterGender {
+  UNKNOWN
+  MALE
+  FEMALE
+}
+
+enum CharacterSource {
+  MANUAL
+  ANILIST
+}
+
+enum ExternalSource {
+  ANILIST
+}
+
+enum MetaGender {
+  ALL
+  MALE
+  FEMALE
+}
+
+model Character {
+  id              String            @id @default(cuid())
+  name            String
+  series          String
+  category        CharacterCategory
+  imageUrl        String
+  rarity          CharacterRarity
+  popularityScore Float
+  coinValue       Int
+  active          Boolean           @default(true)
+  gender          CharacterGender   @default(UNKNOWN)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model AnilistCharacter {
+  id              String          @id @default(cuid())
+  externalId      Int             @unique
+  name            String
+  gender          CharacterGender @default(UNKNOWN)
+  series          String
+  imageUrl        String
+  sourceImageUrl  String
+  popularityScore Float
+  rarity          CharacterRarity
+  coinValue       Int
+  active          Boolean         @default(true)
+  fetchedAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model CharacterSourceMeta {
+  id         String         @id @default(cuid())
+  source     ExternalSource
+  gender     MetaGender
+  totalCount Int
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([source, gender])
+}
+
+model CharacterGroupImage {
+  id           String          @id @default(cuid())
+  characterRef String
+  source       CharacterSource
+  groupId      String
+  imageUrl     String
+  createdAt    DateTime        @default(now())
+
+  @@unique([characterRef, source, groupId])
+}
+
+model CharacterOwnership {
+  id            String          @id @default(cuid())
+  characterRef  String
+  source        CharacterSource @default(MANUAL)
+  groupId       String
+  ownerJid      String?
+  capturedAt    DateTime        @default(now())
+  rollMessageId String?
+
+  @@unique([characterRef, source, groupId])
+}
+
+model LinkedGroup {
+  id          String   @id @default(cuid())
+  mainGroupId String   @unique
+  gameGroupId String   @unique
+  createdAt   DateTime @default(now())
+}
