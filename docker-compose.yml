@@ -33,6 +33,7 @@ services:
       - backend-media:/app/media
       - backend-media-triggers:/app/media_triggers
       - backend-daily:/app/daily_vid
+      - backend-anilist-images:/app/data/character-images/anilist
     networks:
       - bot-net
     depends_on:
@@ -49,3 +50,4 @@ volumes:
   backend-media:
   backend-media-triggers:
   backend-daily:
+  backend-anilist-images:
