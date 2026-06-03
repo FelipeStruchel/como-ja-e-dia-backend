@@ -54,31 +54,30 @@ async function generateDropCaption(pokemon: {
       },
     ],
     30_000,
-    100
+    null
   )
   return result ?? '✨ Uma presença misteriosa emerge das sombras...'
 }
 
-export async function generateCaptureMessage(
-  pokemonName: string,
-  capturedByJid: string
-): Promise<string> {
-  const number = capturedByJid.split('@')[0]
+export async function generateCaptureMessage(pokemonName: string): Promise<string> {
   const result = await callGeminiChat(
     [
       { role: 'system', content: DROP_NARRATOR_PERSONA },
       {
         role: 'user',
-        content: `O treinador de número ${number} acabou de capturar ${pokemonName}! Gere uma mensagem de captura épica e celebratória que revela o nome ${pokemonName}.`,
+        content: `Um treinador acabou de capturar ${pokemonName}! Gere uma mensagem de captura épica e celebratória que revela o nome ${pokemonName}. Use o token {{mention}} exatamente onde deve aparecer a menção ao treinador.`,
       },
     ],
     30_000,
-    100
+    null
   )
-  return result ?? `🎉 Incrível! *${pokemonName}* foi capturado!`
+  return result ?? `🎉 {{mention}} capturou *${pokemonName}*!`
 }
 
-export async function executeDrop(groupId: string): Promise<void> {
+export async function executeDrop(
+  groupId: string,
+  options?: { spawnedBy?: string; spawnerUnlocksAt?: number }
+): Promise<void> {
   const redis = getRedis()
 
   const existing = await redis.get(`drop:active:${groupId}`)
@@ -126,9 +125,18 @@ export async function executeDrop(groupId: string): Promise<void> {
     data: { groupId, pokemonId },
   })
 
+  const expiresAt = Date.now() + DROP_CONFIG.ACTIVE_TTL_SEC * 1000
+
   await redis.set(
     `drop:active:${groupId}`,
-    JSON.stringify({ dropId: drop.id, pokemonId }),
+    JSON.stringify({
+      dropId: drop.id,
+      pokemonId,
+      expiresAt,
+      ...(options?.spawnedBy
+        ? { spawnedBy: options.spawnedBy, spawnerUnlocksAt: options.spawnerUnlocksAt }
+        : {}),
+    }),
     'EX',
     DROP_CONFIG.ACTIVE_TTL_SEC
   )

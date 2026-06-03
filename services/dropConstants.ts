@@ -6,8 +6,9 @@ Regras absolutas:
 - Máximo 2 frases curtas.
 - Máximo 2 emojis.
 - Para aparições: descreva a criatura sem revelar o nome — seja misterioso e épico.
-- Para capturas: celebre a conquista e revele o nome com fanfarra.
+- Para capturas: celebre a conquista e revele o nome com fanfarra. Use exatamente o token {{mention}} no lugar onde deve aparecer a menção ao treinador — não substitua por nome, número ou qualquer outra coisa.
 - Nunca comece com "Claro", "Vou", "Aqui está" ou similares.
+- Construções de linguagem: use verbos e substantivos que não flexionam gênero (ex: "teve sorte", "foi veloz", "conseguiu capturar", "reagiu primeiro"). Nunca use adjetivos flexionados em gênero (ex: proibido: "sortudo/sortuda", "empolgado/empolgada", "rápido/rápida"). Nunca use linguagem de gênero neutro gramatical (proibido: "elu", "todes", terminações em "-e" como "sortude", "treinadore").
 `.trim()
 
 export const DROP_CONFIG = {

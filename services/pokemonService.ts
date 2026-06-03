@@ -52,16 +52,30 @@ export async function fetchAndCachePokemon(id: number): Promise<PokemonData> {
 
   // L3: PokeAPI
   log(`Buscando Pokémon #${id} na PokeAPI`, 'info')
-  let pokemonRes: Awaited<ReturnType<typeof axios.get<PokeApiPokemon>>>
-  let speciesRes: Awaited<ReturnType<typeof axios.get<PokeApiSpecies>>>
-  try {
-    ;[pokemonRes, speciesRes] = await Promise.all([
-      axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${id}`, { timeout: 15_000 }),
-      axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${id}`, { timeout: 15_000 }),
-    ])
-  } catch (err) {
-    log(`Falha ao buscar Pokémon #${id} na PokeAPI: ${(err as Error).message}`, 'error')
-    throw err
+  let pokemonRes!: Awaited<ReturnType<typeof axios.get<PokeApiPokemon>>>
+  let speciesRes!: Awaited<ReturnType<typeof axios.get<PokeApiSpecies>>>
+  const MAX_ATTEMPTS = 3
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      ;[pokemonRes, speciesRes] = await Promise.all([
+        axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${id}`, { timeout: 15_000 }),
+        axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${id}`, { timeout: 15_000 }),
+      ])
+      lastErr = undefined
+      break
+    } catch (err) {
+      lastErr = err
+      if (attempt < MAX_ATTEMPTS) {
+        const delay = 1_000 * 2 ** (attempt - 1)
+        log(`Tentativa ${attempt}/${MAX_ATTEMPTS} falhou para Pokémon #${id}, aguardando ${delay}ms`, 'warn')
+        await new Promise((r) => setTimeout(r, delay))
+      }
+    }
+  }
+  if (lastErr) {
+    log(`Falha ao buscar Pokémon #${id} na PokeAPI após ${MAX_ATTEMPTS} tentativas: ${(lastErr as Error).message}`, 'error')
+    throw lastErr
   }
 
   const pokemon = pokemonRes.data

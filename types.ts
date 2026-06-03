@@ -1,0 +1,15 @@
+export enum CommandType {
+  All = "all",
+  Analise = "analise",
+  Pokemons = "pokemons",
+  Galeria = "galeria",
+  Give = "give",
+  Trade = "trade",
+  Aceitar = "aceitar",
+  Recusar = "recusar",
+  Confirmar = "confirmar",
+  Cancelar = "cancelar",
+  Ajuda = "ajuda",
+  UsageError = "usage_error",
+  ForceSpawn = "forcespawn",
+}

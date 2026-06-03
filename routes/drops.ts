@@ -47,7 +47,9 @@ export function registerDropRoutes(app: Express): void {
           : null
         const pokemonName = pokemon?.name ?? `Pokémon desconhecido`
 
-        const message = await generateCaptureMessage(pokemonName, capturedBy)
+        const number = capturedBy.split('@')[0]
+        const raw = await generateCaptureMessage(pokemonName)
+        const message = raw.replace('{{mention}}', `@${number}`)
 
         await enqueueSendMessage({
           type: 'text',
@@ -67,6 +69,43 @@ export function registerDropRoutes(app: Express): void {
           mentions: [capturedBy],
         }).catch((qErr: Error) => log(`Fallback enqueue failed: ${qErr.message}`, 'error'))
         log(`Erro na mensagem de captura: ${(err as Error).message}`, 'error')
+      }
+    })
+  })
+
+  app.post('/drops/spawner-blocked', async (req, res) => {
+    const token = req.headers['x-drop-token']
+    if (!process.env.DROP_CAPTURE_TOKEN || token !== process.env.DROP_CAPTURE_TOKEN) {
+      res.status(401).json({ error: 'unauthorized' })
+      return
+    }
+
+    const { groupId, reactorJid, unlocksAt } = req.body as {
+      groupId?: string
+      reactorJid?: string
+      unlocksAt?: number
+    }
+
+    if (!groupId || !reactorJid || !unlocksAt) {
+      res.status(400).json({ error: 'groupId, reactorJid e unlocksAt são obrigatórios' })
+      return
+    }
+
+    res.json({ ok: true })
+
+    setImmediate(async () => {
+      try {
+        const secsLeft = Math.max(60, Math.ceil((unlocksAt - Date.now()) / 1000))
+        const minsLeft = Math.ceil(secsLeft / 60)
+        const number = reactorJid.split('@')[0]
+        await enqueueSendMessage({
+          type: 'text',
+          groupId,
+          content: `⏳ @${number}, você convocou este Pokémon! Aguarda ${minsLeft} minuto${minsLeft !== 1 ? 's' : ''} antes de poder capturá-lo.`,
+          mentions: [reactorJid],
+        })
+      } catch (err) {
+        log(`Erro ao notificar spawner bloqueado: ${(err as Error).message}`, 'error')
       }
     })
   })

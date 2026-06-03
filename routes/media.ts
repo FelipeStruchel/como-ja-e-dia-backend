@@ -5,6 +5,7 @@ import multer from "multer";
 import mime from "mime-types";
 import { Express } from "express";
 import { resolveBaseFolder, MEDIA_TYPES, saveMedia, listAllMedia } from "../mediaManager.js";
+import { requireAuth, requireRole, requireWorkerOrRole } from "../middleware/auth.js";
 
 function buildUrls(type: string, filename: string, scope: string) {
   const baseInternal = (process.env.MEDIA_BASE_URL || "http://backend:3000").replace(/\/+$/, "");
@@ -58,7 +59,7 @@ export function registerMediaRoutes(
 ) {
   const upload = createUploadMiddleware();
 
-  app.post("/media", upload.single("file"), async (req, res) => {
+  app.post("/media", requireAuth, requireRole("bom_dia_admin"), upload.single("file"), async (req, res) => {
     try {
       const scope = (req.body.scope || req.query.scope || "media").toString();
       if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado" });
@@ -133,7 +134,7 @@ export function registerMediaRoutes(
     }
   });
 
-  app.delete("/media/:type/:filename", async (req, res) => {
+  app.delete("/media/:type/:filename", requireWorkerOrRole("bom_dia_admin"), async (req, res) => {
     try {
       const { type, filename } = req.params;
       const scope = (req.query.scope || "media").toString();

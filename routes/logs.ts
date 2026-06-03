@@ -1,9 +1,9 @@
 import { Express } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { prisma } from "../services/db.js";
 
 export function registerLogRoutes(app: Express) {
-  app.get("/logs", requireAuth, async (req, res) => {
+  app.get("/logs", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const limit = Math.min(200, Math.max(1, parseInt((req.query.limit as string) || "100", 10)));
       const source = req.query.source as string | undefined;
