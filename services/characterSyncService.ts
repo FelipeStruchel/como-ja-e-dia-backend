@@ -108,7 +108,7 @@ async function buildPool(gameGroupId: string, filter: RollFilter): Promise<PreRo
     prisma.character.count({ where: manualWhere }),
   ])
 
-  const anilistTotal = anilistMeta?.totalCount ?? 1000
+  const anilistTotal = anilistMeta?.totalCount || 1000
   const total = manualCount + anilistTotal
   if (total === 0) return []
 

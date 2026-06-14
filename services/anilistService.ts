@@ -51,10 +51,10 @@ function mapGender(raw: string | null | undefined): 'MALE' | 'FEMALE' | 'UNKNOWN
 }
 
 const PAGE_QUERY = `
-query ($page: Int, $gender: String) {
+query ($page: Int) {
   Page(page: $page, perPage: 50) {
     pageInfo { total lastPage }
-    characters(sort: ID, gender: $gender) {
+    characters(sort: ID) {
       id
       name { full }
       gender
@@ -71,16 +71,15 @@ export async function fetchRandomPage(
   gender?: 'Male' | 'Female',
   pageOverride?: number,
 ): Promise<{ characters: AnilistCharacterData[]; totalCount: number }> {
-  const metaGender = gender === 'Female' ? 'FEMALE' : gender === 'Male' ? 'MALE' : 'ALL'
   const meta = await prisma.characterSourceMeta.findUnique({
-    where: { source_gender: { source: 'ANILIST', gender: metaGender } },
+    where: { source_gender: { source: 'ANILIST', gender: 'ALL' } },
   })
 
-  const totalCount = meta?.totalCount ?? 1000
+  const totalCount = meta?.totalCount || 1000
   const maxPage = Math.max(1, Math.ceil(totalCount / 50))
   const page = pageOverride ?? Math.floor(Math.random() * maxPage) + 1
 
-  const data = (await request(PAGE_QUERY, { page, gender: gender ?? null })) as any
+  const data = (await request(PAGE_QUERY, { page })) as any
   const rawChars: any[] = data?.data?.Page?.characters ?? []
   const actualTotal: number = data?.data?.Page?.pageInfo?.total ?? totalCount
 
@@ -99,28 +98,21 @@ export async function fetchRandomPage(
 }
 
 const META_QUERY = `
-query ($gender: String) {
+{
   Page(page: 1, perPage: 1) {
     pageInfo { total }
-    characters(sort: ID, gender: $gender) { id }
+    characters(sort: ID) { id }
   }
 }`
 
 export async function fetchSourceMeta(): Promise<
   Array<{ gender: 'ALL' | 'MALE' | 'FEMALE'; totalCount: number }>
 > {
-  const filters: Array<['ALL' | 'MALE' | 'FEMALE', string | null]> = [
-    ['ALL', null],
-    ['MALE', 'Male'],
-    ['FEMALE', 'Female'],
+  const data = (await request(META_QUERY, {})) as any
+  const totalCount: number = data?.data?.Page?.pageInfo?.total ?? 0
+  return [
+    { gender: 'ALL', totalCount },
+    { gender: 'MALE', totalCount },
+    { gender: 'FEMALE', totalCount },
   ]
-  const results: Array<{ gender: 'ALL' | 'MALE' | 'FEMALE'; totalCount: number }> = []
-
-  for (const [gender, anilistGender] of filters) {
-    const data = (await request(META_QUERY, { gender: anilistGender })) as any
-    const totalCount: number = data?.data?.Page?.pageInfo?.total ?? 0
-    results.push({ gender, totalCount })
-  }
-
-  return results
 }
