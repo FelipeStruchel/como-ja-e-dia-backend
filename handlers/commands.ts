@@ -66,9 +66,24 @@ export function createCommandProcessor({
     return process.env.ALLOWED_PING_GROUP || "120363339314665620@g.us";
   }
 
-  function isFromAllowedGroup(msg: IncomingMsg): boolean {
-    const allowed = getAllowedGroupId();
-    return !!(msg && msg.from === allowed);
+  let linkedGroupCache: { ids: Set<string>; fetchedAt: number } = { ids: new Set(), fetchedAt: 0 }
+  const LINKED_CACHE_TTL_MS = 60_000
+
+  async function isFromAllowedGroup(msg: IncomingMsg): Promise<boolean> {
+    if (!msg?.from) return false
+    if (msg.from === getAllowedGroupId()) return true
+    const now = Date.now()
+    if (now - linkedGroupCache.fetchedAt > LINKED_CACHE_TTL_MS) {
+      try {
+        const linked = await prismaClient.linkedGroup.findMany({
+          select: { mainGroupId: true, gameGroupId: true },
+        })
+        const ids = new Set<string>()
+        for (const l of linked) { ids.add(l.mainGroupId); ids.add(l.gameGroupId) }
+        linkedGroupCache = { ids, fetchedAt: now }
+      } catch {}
+    }
+    return linkedGroupCache.ids.has(msg.from)
   }
 
   type AllCommand      = { type: CommandType.All }
@@ -1128,7 +1143,7 @@ export function createCommandProcessor({
         || cmd.type === CommandType.Rollam
         || cmd.type === CommandType.Rollah
         || cmd.type === CommandType.MiruHelp;
-      if (!isMiruCmd && !isFromAllowedGroup(msg)) return;
+      if (!isMiruCmd && !(await isFromAllowedGroup(msg))) return;
 
       if (cmd.type === CommandType.All) {
         await handleAllCommand(msg);
