@@ -21,6 +21,7 @@ export const DROP_CONFIG = {
   TOTAL_POKEMON: 1025,
   BOT_REACTION_EMOJI: '✨',
   QUEUE_NAME: 'drop-scheduler',
+  MIRU_CLAIM_COOLDOWN_SEC: 10_800,
 } as const
 
 export function calculateDropProbability(activityCount: number): number {
