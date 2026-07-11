@@ -61,12 +61,15 @@ export async function fetchAndCachePokemon(identifier: number | string): Promise
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       ;[pokemonRes, speciesRes] = await Promise.all([
-        axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${identifier}`, { timeout: 15_000 }),
-        axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${identifier}`, { timeout: 15_000 }),
+        axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(String(identifier))}`, { timeout: 15_000 }),
+        axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${encodeURIComponent(String(identifier))}`, { timeout: 15_000 }),
       ])
       lastErr = undefined
       break
     } catch (err) {
+      if (axios.isAxiosError(err) && err.response && err.response.status >= 400 && err.response.status < 500) {
+        throw err
+      }
       lastErr = err
       if (attempt < MAX_ATTEMPTS) {
         const delay = 1_000 * 2 ** (attempt - 1)

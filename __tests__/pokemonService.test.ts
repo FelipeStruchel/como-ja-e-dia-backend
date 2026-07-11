@@ -79,4 +79,30 @@ describe('fetchAndCachePokemon with a name (new behavior)', () => {
     await fetchAndCachePokemon('pikachu')
     expect(prisma.pokemonCache.findUnique).not.toHaveBeenCalled()
   })
+
+  it('does not retry on a 404 (misspelled name) and calls each endpoint only once', async () => {
+    const notFoundErr = {
+      isAxiosError: true,
+      response: { status: 404 },
+      message: 'Request failed with status code 404',
+    }
+    mockedAxios.get.mockRejectedValue(notFoundErr)
+    mockedAxios.isAxiosError.mockReturnValue(true)
+
+    await expect(fetchAndCachePokemon('pikachuu')).rejects.toBe(notFoundErr)
+    expect(mockedAxios.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('encodes the identifier when building the PokeAPI URLs', async () => {
+    mockPokeApiResponses(25, 'pikachu')
+    await fetchAndCachePokemon('pika chu')
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect.stringContaining('/pokemon/pika%20chu'),
+      expect.anything()
+    )
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect.stringContaining('/pokemon-species/pika%20chu'),
+      expect.anything()
+    )
+  })
 })
