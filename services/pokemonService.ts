@@ -28,16 +28,18 @@ export interface PokemonData {
   captureRate: number
 }
 
-export async function fetchAndCachePokemon(id: number): Promise<PokemonData> {
+export async function fetchAndCachePokemon(identifier: number | string): Promise<PokemonData> {
   const redis = getRedis()
-  const cacheKey = `pokemon:${id}`
+  const cacheKey = `pokemon:${identifier}`
 
   // L1: Redis
   const cached = await redis.get(cacheKey)
   if (cached) return JSON.parse(cached) as PokemonData
 
-  // L2: DB
-  const dbEntry = await prisma.pokemonCache.findUnique({ where: { id } })
+  // L2: DB (only possible when we already know the numeric id)
+  const dbEntry = typeof identifier === 'number'
+    ? await prisma.pokemonCache.findUnique({ where: { id: identifier } })
+    : null
   if (dbEntry) {
     const data: PokemonData = {
       id: dbEntry.id,
@@ -51,7 +53,7 @@ export async function fetchAndCachePokemon(id: number): Promise<PokemonData> {
   }
 
   // L3: PokeAPI
-  log(`Buscando Pokémon #${id} na PokeAPI`, 'info')
+  log(`Buscando Pokémon #${identifier} na PokeAPI`, 'info')
   let pokemonRes!: Awaited<ReturnType<typeof axios.get<PokeApiPokemon>>>
   let speciesRes!: Awaited<ReturnType<typeof axios.get<PokeApiSpecies>>>
   const MAX_ATTEMPTS = 3
@@ -59,8 +61,8 @@ export async function fetchAndCachePokemon(id: number): Promise<PokemonData> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       ;[pokemonRes, speciesRes] = await Promise.all([
-        axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${id}`, { timeout: 15_000 }),
-        axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${id}`, { timeout: 15_000 }),
+        axios.get<PokeApiPokemon>(`https://pokeapi.co/api/v2/pokemon/${identifier}`, { timeout: 15_000 }),
+        axios.get<PokeApiSpecies>(`https://pokeapi.co/api/v2/pokemon-species/${identifier}`, { timeout: 15_000 }),
       ])
       lastErr = undefined
       break
@@ -68,13 +70,13 @@ export async function fetchAndCachePokemon(id: number): Promise<PokemonData> {
       lastErr = err
       if (attempt < MAX_ATTEMPTS) {
         const delay = 1_000 * 2 ** (attempt - 1)
-        log(`Tentativa ${attempt}/${MAX_ATTEMPTS} falhou para Pokémon #${id}, aguardando ${delay}ms`, 'warn')
+        log(`Tentativa ${attempt}/${MAX_ATTEMPTS} falhou para Pokémon #${identifier}, aguardando ${delay}ms`, 'warn')
         await new Promise((r) => setTimeout(r, delay))
       }
     }
   }
   if (lastErr) {
-    log(`Falha ao buscar Pokémon #${id} na PokeAPI após ${MAX_ATTEMPTS} tentativas: ${(lastErr as Error).message}`, 'error')
+    log(`Falha ao buscar Pokémon #${identifier} na PokeAPI após ${MAX_ATTEMPTS} tentativas: ${(lastErr as Error).message}`, 'error')
     throw lastErr
   }
 
