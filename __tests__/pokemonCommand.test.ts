@@ -42,6 +42,7 @@ import { prisma } from '../services/db.js'
 import { enqueueSendMessage } from '../services/sendQueue.js'
 import { log } from '../services/logger.js'
 import { generateAIAnalysis } from '../services/ai.js'
+import { fetchAndCachePokemon } from '../services/pokemonService.js'
 
 const ALLOWED_GROUP_ID = '120363339314665620@g.us'
 
@@ -81,6 +82,62 @@ describe('!pokemon parsing', () => {
     // the important assertion is that it does NOT go through the new PokemonInfo "not found" path.
     expect(enqueueSendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining('Pokémon não encontrado') })
+    )
+  })
+})
+
+describe('!pokemon <nome> lookup', () => {
+  it('sends the Pokémon image+caption when found via PokeAPI (English slug/id)', async () => {
+    vi.mocked(fetchAndCachePokemon).mockResolvedValue({
+      id: 25,
+      name: 'Pikachu',
+      imageUrl: 'https://img/pikachu.png',
+      types: ['electric'],
+      captureRate: 190,
+    })
+    const process = makeProcessor()
+    await process(makeMsg('!pokemon pikachu'))
+
+    expect(fetchAndCachePokemon).toHaveBeenCalledWith('pikachu')
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'image',
+        content: 'https://img/pikachu.png',
+        caption: expect.stringContaining('Pikachu'),
+      })
+    )
+  })
+
+  it('falls back to the local pt-BR cache (case/accent-insensitive) when the API lookup fails', async () => {
+    vi.mocked(fetchAndCachePokemon).mockRejectedValue(new Error('Request failed with status code 404'))
+    vi.mocked(prisma.pokemonCache.findMany).mockResolvedValue([
+      { id: 3, name: 'Venusaur', imageUrl: 'https://img/venusaur.png', types: ['grass', 'poison'], captureRate: 45 },
+    ] as any)
+
+    const process = makeProcessor()
+    await process(makeMsg('!pokemon venusaur'))
+
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'image',
+        content: 'https://img/venusaur.png',
+        caption: expect.stringContaining('Venusaur'),
+      })
+    )
+  })
+
+  it('replies with a not-found message when neither lookup resolves', async () => {
+    vi.mocked(fetchAndCachePokemon).mockRejectedValue(new Error('Request failed with status code 404'))
+    vi.mocked(prisma.pokemonCache.findMany).mockResolvedValue([] as any)
+
+    const process = makeProcessor()
+    await process(makeMsg('!pokemon naoexiste'))
+
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'text',
+        content: expect.stringContaining('Pokémon não encontrado'),
+      })
     )
   })
 })

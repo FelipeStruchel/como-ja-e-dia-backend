@@ -6,6 +6,7 @@ import { log } from "../services/logger.js";
 import { generateAIAnalysis } from "../services/ai.js";
 import { CommandType } from "../types.js"
 import { executeDrop } from '../services/dropService.js';
+import { fetchAndCachePokemon } from '../services/pokemonService.js'
 import {
   consumeRolls,
   executeMiruDrop,
@@ -473,6 +474,54 @@ export function createCommandProcessor({
       type: "text",
       content: header + divider + lines.join("\n"),
       mentions: [author],
+    })
+  }
+
+  async function handlePokemonInfoCommand(msg: IncomingMsg, rawName: string): Promise<void> {
+    if (!msg.from) return
+
+    const normalizedQuery = removeAccents(rawName.trim().toLowerCase())
+    let found: { id: number; name: string; imageUrl: string; types: string[]; captureRate: number } | null = null
+
+    try {
+      found = await fetchAndCachePokemon(rawName.trim().toLowerCase())
+    } catch {
+      const caches = await prismaClient.pokemonCache.findMany()
+      const match = caches.find((c) => removeAccents(c.name.toLowerCase()) === normalizedQuery)
+      if (match) {
+        found = {
+          id: match.id,
+          name: match.name,
+          imageUrl: match.imageUrl,
+          types: match.types,
+          captureRate: match.captureRate,
+        }
+      }
+    }
+
+    if (!found) {
+      await enqueueFn({
+        groupId: msg.from,
+        type: 'text',
+        content: `❌ Pokémon não encontrado: *${rawName.trim()}*`,
+        replyTo: msg.id,
+      })
+      return
+    }
+
+    const types = found.types.join(', ')
+    const caption = [
+      `🎮 *${found.name}*`,
+      `🏷️ _${types}_`,
+      `📈 _Taxa de captura: ${found.captureRate}_`,
+    ].join('\n')
+
+    await enqueueFn({
+      groupId: msg.from,
+      type: 'image',
+      content: found.imageUrl,
+      caption,
+      replyTo: msg.id,
     })
   }
 
@@ -1160,6 +1209,10 @@ export function createCommandProcessor({
       }
       if (cmd.type === CommandType.Pokemons) {
         await handlePokemonsCommand(msg);
+        return;
+      }
+      if (cmd.type === CommandType.PokemonInfo) {
+        await handlePokemonInfoCommand(msg, cmd.name);
         return;
       }
       if (cmd.type === CommandType.Galeria) {
