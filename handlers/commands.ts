@@ -89,6 +89,7 @@ export function createCommandProcessor({
   type AllCommand      = { type: CommandType.All }
   type AnaliseCommand  = { type: CommandType.Analise; n: number }
   type PokemonsCommand = { type: CommandType.Pokemons }
+  type PokemonInfoCommand = { type: CommandType.PokemonInfo; name: string }
   type GaleriaCommand  = { type: CommandType.Galeria }
   type GiveCommand     = { type: CommandType.Give;  names: string[] }
   type TradeCommand    = { type: CommandType.Trade; names: string[] }
@@ -108,7 +109,7 @@ export function createCommandProcessor({
   type RollahCommand  = { type: CommandType.Rollah;  count: number }
   type MiruHelpCommand = { type: CommandType.MiruHelp }
   type Command =
-    | AllCommand | AnaliseCommand | PokemonsCommand | GaleriaCommand
+    | AllCommand | AnaliseCommand | PokemonsCommand | PokemonInfoCommand | GaleriaCommand
     | GiveCommand | TradeCommand | AceitarCommand | RecusarCommand
     | ConfirmarCommand | CancelarCommand | AjudaCommand | UsageErrorCommand
     | ForceSpawnCommand | MiruCommand | AlbumCommand | TopCommand
@@ -119,6 +120,10 @@ export function createCommandProcessor({
 
     if (lowered === "!all" || lowered === "!everyone") return { type: CommandType.All };
     if (lowered === "!pokemons" || lowered === "!pokemon") return { type: CommandType.Pokemons };
+    if (lowered.startsWith("!pokemon ")) {
+      const name = lowered.slice("!pokemon ".length).trim();
+      if (name) return { type: CommandType.PokemonInfo, name };
+    }
     if (lowered === "!galeria")    return { type: CommandType.Galeria };
     if (lowered === "!recusar")    return { type: CommandType.Recusar };
     if (lowered === "!confirmar")  return { type: CommandType.Confirmar };

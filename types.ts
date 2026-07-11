@@ -2,6 +2,7 @@ export enum CommandType {
   All = "all",
   Analise = "analise",
   Pokemons = "pokemons",
+  PokemonInfo = "pokemon_info",
   Galeria = "galeria",
   Give = "give",
   Trade = "trade",
