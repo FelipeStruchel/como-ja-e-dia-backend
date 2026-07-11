@@ -1,4 +1,5 @@
 import { Express } from "express";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 
 let currentQr: string | null = null;
 let qrExpiry = 0;
@@ -18,7 +19,7 @@ export function registerWhatsAppQrRoutes(app: Express) {
     return res.sendStatus(200);
   });
 
-  app.get("/whatsapp-qr", (_req, res) => {
+  app.get("/whatsapp-qr", requireAuth, requireRole("super_admin"), (_req, res) => {
     if (!currentQr || Date.now() > qrExpiry) return res.sendStatus(404);
     return res.json({ qr: currentQr });
   });
