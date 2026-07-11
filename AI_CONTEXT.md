@@ -3,7 +3,7 @@ Project: Backend (WhatsApp bot core API)
 Principles
 - Keep this repo API-only; no frontend assets. Use Express routers under routes/, services/ for business logic, models/ for Mongo schemas, middleware/ for auth/log.
 - Environment-driven config; never hardcode secrets. Required envs: Mongo (MONGO_URI), Redis (REDIS_HOST/PORT), GROUP_ID/ALLOWED_PING_GROUP, MEDIA_BASE_URL (internal), BACKEND_PUBLIC_URL (external), CONTEXT_INGEST_TOKEN for log ingest, AI keys, etc.
-- Authentication: protected routes use requireAuth; public endpoints are minimal (confessions/events as defined).
+- Authentication: protected routes use requireAuth; public endpoints are minimal (confessions/events, POST /frases, POST /media as defined — the public "Mensagem do Dia" page submits without login).
 - Logging: use services/logger.js; log to Mongo via ingest; avoid console-only paths.
 
 Media & URLs
