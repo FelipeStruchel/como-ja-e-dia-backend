@@ -1,16 +1,17 @@
 import { Express } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { enqueueGroupContextJob } from "../services/groupContextQueue.js";
+import { isContextSyncEnabled } from "../services/groupService.js";
 import { prisma } from "../services/db.js";
 
 export function registerGroupContextRoutes(app: Express) {
   app.post("/context/refresh", requireAuth, async (req, res) => {
     try {
-      const groupId =
-        req.body?.groupId ||
-        process.env.GROUP_ID ||
-        process.env.ALLOWED_PING_GROUP;
+      const groupId = req.body?.groupId;
       if (!groupId) return res.status(400).json({ error: "groupId é obrigatório" });
+      if (!(await isContextSyncEnabled(groupId))) {
+        return res.status(403).json({ error: "Sync de contexto não habilitado para este grupo" });
+      }
       await enqueueGroupContextJob(groupId);
       res.json({ message: "Job de contexto enfileirado", groupId });
     } catch (err: unknown) {
