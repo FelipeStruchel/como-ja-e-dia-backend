@@ -6,6 +6,7 @@ import { generateAICaption } from "./ai.js";
 import { enqueueSendMessage } from "./sendQueue.js";
 import { log } from "./logger.js";
 import { getRandomMedia } from "../mediaManager.js";
+import { getScheduledGreetingsEnabledGroupIds } from "./groupService.js";
 
 const connection = {
   host: process.env.REDIS_HOST || "redis",
@@ -214,24 +215,23 @@ async function processScheduleJob(scheduleId: string): Promise<void> {
   }
 
   const payloads: Parameters<typeof enqueueSendMessage>[0][] = [];
-  const groupId =
-    process.env.GROUP_ID ||
-    process.env.ALLOWED_PING_GROUP ||
-    "120363339314665620@g.us";
+  const groupIds = await getScheduledGreetingsEnabledGroupIds();
   const mediaUrl = schedule.mediaUrl || "";
 
-  if (schedule.type === "text") {
-    payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
-  } else {
-    payloads.push({
-      groupId,
-      type: (schedule.type as "image" | "video") || "image",
-      content: mediaUrl,
-      caption: caption || undefined,
-    });
+  for (const groupId of groupIds) {
+    if (schedule.type === "text") {
+      payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
+    } else {
+      payloads.push({
+        groupId,
+        type: (schedule.type as "image" | "video") || "image",
+        content: mediaUrl,
+        caption: caption || undefined,
+      });
+    }
   }
 
-  if (schedule.includeRandomPool !== false) {
+  if (schedule.includeRandomPool !== false && groupIds.length) {
     const randomMedia = await getRandomMedia();
     const randomTextRows = await prisma.$queryRaw<
       { id: string; text: string }[]
@@ -256,31 +256,33 @@ async function processScheduleJob(scheduleId: string): Promise<void> {
         : choice.data?.type === "image"
           ? "Foto"
           : "Vídeo";
-      if (schedule.includeIntro) {
-        payloads.push({ groupId, type: "text", content: `${typeLabel} do dia:` });
-      }
-      if (isText && choice.kind === "text") {
-        payloads.push({
-          groupId,
-          type: "text",
-          content: choice.data.content || "",
-          cleanup: choice.data.id
-            ? { type: "phrase", id: choice.data.id }
-            : undefined,
-        });
-      } else if (choice.kind === "media" && choice.data) {
-        const baseInternal = (
-          process.env.MEDIA_BASE_URL ||
-          process.env.BACKEND_PUBLIC_URL ||
-          "http://backend:3000"
-        ).replace(/\/+$/, "");
-        const filename = path.basename(choice.data.path);
-        payloads.push({
-          groupId,
-          type: choice.data.type as "image" | "video",
-          content: `${baseInternal}/media/${choice.data.type}/${filename}`,
-          cleanup: { type: choice.data.type, filename, scope: "media" },
-        });
+      for (const groupId of groupIds) {
+        if (schedule.includeIntro) {
+          payloads.push({ groupId, type: "text", content: `${typeLabel} do dia:` });
+        }
+        if (isText && choice.kind === "text") {
+          payloads.push({
+            groupId,
+            type: "text",
+            content: choice.data.content || "",
+            cleanup: choice.data.id
+              ? { type: "phrase", id: choice.data.id }
+              : undefined,
+          });
+        } else if (choice.kind === "media" && choice.data) {
+          const baseInternal = (
+            process.env.MEDIA_BASE_URL ||
+            process.env.BACKEND_PUBLIC_URL ||
+            "http://backend:3000"
+          ).replace(/\/+$/, "");
+          const filename = path.basename(choice.data.path);
+          payloads.push({
+            groupId,
+            type: choice.data.type as "image" | "video",
+            content: `${baseInternal}/media/${choice.data.type}/${filename}`,
+            cleanup: { type: choice.data.type, filename, scope: "media" },
+          });
+        }
       }
     }
   }
