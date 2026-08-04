@@ -27,6 +27,9 @@ import { registerPersonaRoutes } from "./routes/persona.js";
 import { registerScheduleRoutes } from "./routes/schedules.js";
 import { startScheduledWorker, resyncSchedules } from "./services/scheduledJobs.js";
 import { registerWhatsAppQrRoutes } from "./routes/whatsappQr.js";
+import { registerGroupRoutes } from "./routes/groups.js";
+import { ensureGroupSeeded } from "./services/groupService.js";
+import { startMuteScheduler } from "./services/muteSchedulerQueue.js";
 import { registerDropRoutes } from "./routes/drops.js";
 import { registerMiruRoutes } from "./routes/miru.js";
 import { startDropScheduler } from "./services/dropScheduler.js";
@@ -78,6 +81,20 @@ async function ensureSourceMeta(): Promise<void> {
 
 void ensureSourceMeta()
 
+async function ensureMainGroupSeeded(): Promise<void> {
+  if (!_dbConnected) return;
+  const groupId =
+    process.env.GROUP_ID || process.env.ALLOWED_PING_GROUP || "120363339314665620@g.us";
+  try {
+    await ensureGroupSeeded(groupId, "Grupo principal");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log(`Falha ao garantir grupo principal: ${msg}`, "error");
+  }
+}
+
+void ensureMainGroupSeeded();
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 setInterval(() => { void ensureSourceMeta() }, SEVEN_DAYS_MS)
 
@@ -103,6 +120,7 @@ registerScheduleRoutes(app);
 registerWhatsAppQrRoutes(app);
 registerDropRoutes(app);
 registerMiruRoutes(app);
+registerGroupRoutes(app);
 
 app.get("/db-status", async (_req, res) => {
   try {
@@ -124,6 +142,7 @@ startIncomingConsumer(processIncoming);
 startScheduledWorker();
 resyncSchedules();
 startDropScheduler();
+startMuteScheduler();
 
 app.listen(PORT, () => {
   log(`API rodando na porta ${PORT}`, "success");

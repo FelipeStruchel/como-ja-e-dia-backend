@@ -1,6 +1,7 @@
 import removeAccentsLib from "remove-accents";
 import { prisma } from "../services/db.js";
 import { getRedis } from "../services/redis.js";
+import { isGroupRegistered, isPokemonEnabled } from "../services/groupService.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
 import { log } from "../services/logger.js";
 import { generateAIAnalysis } from "../services/ai.js";
@@ -72,7 +73,7 @@ export function createCommandProcessor({
 
   async function isFromAllowedGroup(msg: IncomingMsg): Promise<boolean> {
     if (!msg?.from) return false
-    if (msg.from === getAllowedGroupId()) return true
+    if (await isGroupRegistered(msg.from)) return true
     const now = Date.now()
     if (now - linkedGroupCache.fetchedAt > LINKED_CACHE_TTL_MS) {
       try {
@@ -1198,6 +1199,19 @@ export function createCommandProcessor({
         || cmd.type === CommandType.Rollah
         || cmd.type === CommandType.MiruHelp;
       if (!isMiruCmd && !(await isFromAllowedGroup(msg))) return;
+
+      const POKEMON_COMMAND_TYPES = new Set([
+        CommandType.Pokemons,
+        CommandType.Galeria,
+        CommandType.Give,
+        CommandType.Trade,
+        CommandType.Aceitar,
+        CommandType.Recusar,
+        CommandType.Confirmar,
+        CommandType.Cancelar,
+        CommandType.ForceSpawn,
+      ]);
+      if (POKEMON_COMMAND_TYPES.has(cmd.type) && !(await isPokemonEnabled(msg.from!))) return;
 
       if (cmd.type === CommandType.All) {
         await handleAllCommand(msg);

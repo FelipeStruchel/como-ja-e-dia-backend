@@ -55,6 +55,7 @@ model Trigger {
   id                     String    @id @default(cuid())
   name                   String    @default("")
   phrases                String[]
+  groupId                String    @default("")
   matchType              String    @default("exact")
   caseSensitive          Boolean   @default(false)
   normalizeAccents       Boolean   @default(true)
@@ -264,4 +265,16 @@ model LinkedGroup {
   mainGroupId String   @unique
   gameGroupId String   @unique
   createdAt   DateTime @default(now())
+}
+
+model Group {
+  id                        String   @id
+  name                      String
+  pokemonEnabled            Boolean  @default(false)
+  confessionsEnabled        Boolean  @default(false)
+  scheduledGreetingsEnabled Boolean  @default(false)
+  triggersEnabled           Boolean  @default(false)
+  contextSyncEnabled        Boolean  @default(false)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
