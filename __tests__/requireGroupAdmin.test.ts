@@ -98,4 +98,14 @@ describe('requireGroupAdmin', () => {
     await requireGroupAdmin(async () => 'g1@g.us')(req, res, next)
     expect(next).toHaveBeenCalled()
   })
+
+  it('returns 500 and does not hang or call next() when isGroupAdminOf rejects', async () => {
+    vi.mocked(verifyToken).mockReturnValue({ sub: 'u1' } as any)
+    vi.mocked(getUserById).mockResolvedValue(mockUser as any)
+    vi.mocked(isGroupAdminOf).mockRejectedValue(new Error('db down'))
+    const { req, res, next } = makeReqRes('valid-token')
+    await requireGroupAdmin(() => 'g1@g.us')(req, res, next)
+    expect(res.status).toHaveBeenCalledWith(500)
+    expect(next).not.toHaveBeenCalled()
+  })
 })

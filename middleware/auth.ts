@@ -72,23 +72,28 @@ export function requireGroupAdmin(
 ) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     await requireAuth(req, res, async () => {
-      const user = req.user!;
-      const userSlugs = user.roles?.map((ur) => ur.role.slug) ?? [];
-      if (userSlugs.includes("super_admin")) {
+      try {
+        const user = req.user!;
+        const userSlugs = user.roles?.map((ur) => ur.role.slug) ?? [];
+        if (userSlugs.includes("super_admin")) {
+          next();
+          return;
+        }
+        const groupId = await getGroupId(req);
+        if (!groupId) {
+          res.status(400).json({ error: "groupId é obrigatório" });
+          return;
+        }
+        const isAdmin = await isGroupAdminOf(user.id, groupId);
+        if (!isAdmin) {
+          res.status(403).json({ error: "Sem permissão neste grupo" });
+          return;
+        }
         next();
-        return;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Erro ao verificar permissão do grupo";
+        res.status(500).json({ error: msg });
       }
-      const groupId = await getGroupId(req);
-      if (!groupId) {
-        res.status(400).json({ error: "groupId é obrigatório" });
-        return;
-      }
-      const isAdmin = await isGroupAdminOf(user.id, groupId);
-      if (!isAdmin) {
-        res.status(403).json({ error: "Sem permissão neste grupo" });
-        return;
-      }
-      next();
     });
   };
 }

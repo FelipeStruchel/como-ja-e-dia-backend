@@ -18,7 +18,7 @@ vi.mock('../services/redis.js', () => ({ getRedis: vi.fn() }))
 vi.mock('../services/groupDiscoveryQueue.js', () => ({ enqueueGroupDiscoveryJob: vi.fn() }))
 vi.mock('../services/groupService.js', () => ({ resetGroupCache: vi.fn() }))
 
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 import { prisma } from '../services/db.js'
 import { resetGroupCache } from '../services/groupService.js'
 import { registerGroupRoutes } from '../routes/groups.js'
@@ -52,6 +52,31 @@ describe('group admin routes wiring', () => {
     expect(routes['GET /groups/:groupId/admins']).toContain(requireAuth)
     expect(routes['POST /groups/:groupId/admins']).toContain(requireAuth)
     expect(routes['DELETE /groups/:groupId/admins/:userId']).toContain(requireAuth)
+  })
+
+  it('all three admin routes are gated with requireRole("super_admin") specifically', () => {
+    const { app, routes } = makeApp()
+    registerGroupRoutes(app)
+
+    const calls = vi.mocked(requireRole).mock.calls
+    const results = vi.mocked(requireRole).mock.results
+
+    const adminRoutePaths = [
+      'GET /groups/:groupId/admins',
+      'POST /groups/:groupId/admins',
+      'DELETE /groups/:groupId/admins/:userId',
+    ]
+
+    for (const path of adminRoutePaths) {
+      const handlers = routes[path]
+      // Identify which requireRole(...) invocation's returned middleware was
+      // actually wired into this route, then assert the args of that exact
+      // invocation. This fails if the route were changed to gate on any
+      // role other than "super_admin".
+      const resultIndex = results.findIndex((r) => handlers.includes(r.value))
+      expect(resultIndex).toBeGreaterThanOrEqual(0)
+      expect(calls[resultIndex]).toEqual(['super_admin'])
+    }
   })
 })
 
