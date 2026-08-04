@@ -30,6 +30,11 @@ vi.mock('../services/characterSyncService.js', () => ({
   executeRollDrops: vi.fn(),
 }))
 
+vi.mock('../services/groupService.js', () => ({
+  isGroupRegistered: vi.fn().mockResolvedValue(true),
+  isPokemonEnabled: vi.fn().mockResolvedValue(true),
+}))
+
 vi.mock('../services/logger.js', () => ({ log: vi.fn() }))
 vi.mock('../services/ai.js', () => ({ generateAIAnalysis: vi.fn() }))
 vi.mock('../services/dropService.js', () => ({ executeDrop: vi.fn() }))
