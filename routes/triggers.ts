@@ -5,6 +5,7 @@ import { prisma } from "../services/db.js";
 function parseTriggerPayload(body: Record<string, unknown>) {
   const safe: Record<string, unknown> = {};
   safe.name = ((body.name || "") as string).toString().trim();
+  safe.groupId = ((body.groupId || "") as string).toString().trim();
   safe.phrases = Array.isArray(body.phrases)
     ? (body.phrases as unknown[]).map((p) => ((p || "") as string).toString().trim()).filter((p) => (p as string).length > 0)
     : [];
@@ -43,6 +44,9 @@ function parseTriggerPayload(body: Record<string, unknown>) {
 }
 
 function validateTriggerPayload(payload: Record<string, unknown>) {
+  if (!payload.groupId || !(payload.groupId as string).trim()) {
+    throw new Error("groupId é obrigatório");
+  }
   if (!payload.phrases || (payload.phrases as unknown[]).length === 0) {
     throw new Error("Pelo menos uma frase/palavra é obrigatória");
   }

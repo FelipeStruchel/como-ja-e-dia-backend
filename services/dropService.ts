@@ -87,7 +87,7 @@ export async function executeDrop(
   }
 
   const captured = await prisma.pokemonDrop.findMany({
-    where: { capturedBy: { not: null } },
+    where: { capturedBy: { not: null }, groupId },
     select: { pokemonId: true },
   })
   const excludeIds = new Set(captured.map((c) => c.pokemonId))

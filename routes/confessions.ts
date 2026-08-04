@@ -1,6 +1,7 @@
 import { Express } from "express";
 import { getRequestIp } from "../utils/ip.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
+import { getConfessionsEnabledGroupIds } from "../services/groupService.js";
 
 export function registerConfessionRoutes(
   app: Express,
@@ -47,13 +48,12 @@ export function registerConfessionRoutes(
         });
       }
 
-      const targetGroupId =
-        process.env.GROUP_ID ||
-        process.env.ALLOWED_PING_GROUP ||
-        "120363339314665620@g.us";
+      const targetGroupIds = await getConfessionsEnabledGroupIds();
       const finalMessage = `Confissão anônima: ${message}`.slice(0, MAX_MESSAGE_LENGTH);
 
-      await enqueueSendMessage({ groupId: targetGroupId, type: "text", content: finalMessage });
+      for (const targetGroupId of targetGroupIds) {
+        await enqueueSendMessage({ groupId: targetGroupId, type: "text", content: finalMessage });
+      }
       lastConfessionByIp.set(ip, now);
 
       return res.json({ success: true, cooldownMinutes: CONFESSION_COOLDOWN_MINUTES });

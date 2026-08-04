@@ -2,6 +2,7 @@ import removeAccentsLib from "remove-accents";
 import { prisma } from "../services/db.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
 import { log } from "../services/logger.js";
+import { isTriggersEnabledForGroup } from "../services/groupService.js";
 
 function removeAccents(str: string): string {
   return removeAccentsLib(str || "");
@@ -22,6 +23,7 @@ function normalize(str: string, normalizeAccents: boolean, caseSensitive: boolea
 
 interface TriggerRecord {
   id: string;
+  groupId: string;
   active: boolean;
   phrases: string[];
   caseSensitive: boolean;
@@ -99,11 +101,6 @@ export function createTriggerProcessor({
     return async (_msg: unknown) => {};
   }
 
-  const allowedGroup =
-    process.env.ALLOWED_PING_GROUP ||
-    process.env.GROUP_ID ||
-    "120363339314665620@g.us";
-
   const normalizeJid = (jid: string | undefined): string => {
     if (!jid) return "";
     const str = jid.toString();
@@ -146,7 +143,7 @@ export function createTriggerProcessor({
   return async function processTrigger(msg: IncomingMsg): Promise<void> {
     try {
       if (!msg || !msg.body) return;
-      if (msg.from !== allowedGroup) return;
+      if (!msg.from || !(await isTriggersEnabledForGroup(msg.from))) return;
       if ((msg.body || "").trim().startsWith("!")) return;
 
       const triggers = await loadTriggers();
@@ -158,6 +155,7 @@ export function createTriggerProcessor({
 
       for (const trig of triggers) {
         if (!trig.active) continue;
+        if (trig.groupId !== msg.from) continue;
         if (trig.expiresAt && new Date(trig.expiresAt).getTime() <= now) continue;
         if (trig.maxUses && trig.triggeredCount >= trig.maxUses) continue;
         if (Array.isArray(trig.allowedUsers) && trig.allowedUsers.length) {

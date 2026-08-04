@@ -1,5 +1,22 @@
-import { describe, it, expect } from 'vitest'
-import { weightedRandom } from '../services/dropService.js'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('../services/db.js', () => ({
+  prisma: {
+    pokemonDrop: { findMany: vi.fn(), create: vi.fn() },
+    pokemonCache: { findUnique: vi.fn() },
+  },
+}))
+vi.mock('../services/redis.js', () => ({
+  getRedis: vi.fn(() => ({ get: vi.fn().mockResolvedValue(null), set: vi.fn() })),
+}))
+vi.mock('../services/pokemonService.js', () => ({
+  fetchAndCachePokemon: vi.fn().mockResolvedValue({ id: 1, name: 'Bulbasaur', imageUrl: 'x', types: ['grass'] }),
+}))
+vi.mock('../services/sendQueue.js', () => ({ enqueueSendMessage: vi.fn() }))
+vi.mock('../services/ai.js', () => ({ callGeminiChat: vi.fn().mockResolvedValue('...') }))
+
+import { prisma } from '../services/db.js'
+import { weightedRandom, executeDrop } from '../services/dropService.js'
 
 const weights = [
   { id: 1, captureRate: 45 },
@@ -48,5 +65,22 @@ describe('weightedRandom', () => {
   it('works with only one item in pool', () => {
     const singleWeight = [{ id: 99, captureRate: 10 }]
     expect(weightedRandom(singleWeight, new Set())).toBe(99)
+  })
+})
+
+describe('executeDrop excludeIds scoping', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('only queries captured drops for the target group, not globally', async () => {
+    vi.mocked(prisma.pokemonDrop.findMany).mockResolvedValue([])
+    vi.mocked(prisma.pokemonCache.findUnique).mockResolvedValue({ aiCaption: 'cached caption' } as any)
+    vi.mocked(prisma.pokemonDrop.create).mockResolvedValue({ id: 'drop1' } as any)
+
+    await executeDrop('groupA@g.us')
+
+    expect(prisma.pokemonDrop.findMany).toHaveBeenCalledWith({
+      where: { capturedBy: { not: null }, groupId: 'groupA@g.us' },
+      select: { pokemonId: true },
+    })
   })
 })
