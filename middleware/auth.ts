@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken, getUserById } from "../services/authService.js";
+import { isGroupAdminOf } from "../services/groupService.js";
 
 type UserWithRoles = Awaited<ReturnType<typeof getUserById>>;
 
@@ -63,5 +64,31 @@ export function requireWorkerOrRole(...slugs: string[]) {
       return;
     }
     await requireAuth(req, res, () => roleMiddleware(req, res, next));
+  };
+}
+
+export function requireGroupAdmin(
+  getGroupId: (req: Request) => string | null | Promise<string | null>
+) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    await requireAuth(req, res, async () => {
+      const user = req.user!;
+      const userSlugs = user.roles?.map((ur) => ur.role.slug) ?? [];
+      if (userSlugs.includes("super_admin")) {
+        next();
+        return;
+      }
+      const groupId = await getGroupId(req);
+      if (!groupId) {
+        res.status(400).json({ error: "groupId é obrigatório" });
+        return;
+      }
+      const isAdmin = await isGroupAdminOf(user.id, groupId);
+      if (!isAdmin) {
+        res.status(403).json({ error: "Sem permissão neste grupo" });
+        return;
+      }
+      next();
+    });
   };
 }
