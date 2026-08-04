@@ -3,6 +3,7 @@ import { requireAuth, requireRole, requireWorkerOrRole } from "../middleware/aut
 import { prisma } from "../services/db.js";
 import { getRedis } from "../services/redis.js";
 import { enqueueGroupDiscoveryJob } from "../services/groupDiscoveryQueue.js";
+import { resetGroupCache } from "../services/groupService.js";
 
 const DISCOVERY_CACHE_KEY = "groups:discovered";
 const DISCOVERY_CACHE_TTL_SEC = 86_400;
@@ -71,6 +72,7 @@ export function registerGroupRoutes(app: Express) {
         where: { id: req.params.id },
         data,
       });
+      resetGroupCache();
       res.json(updated);
     } catch (err: unknown) {
       if ((err as { code?: string }).code === "P2025") {
@@ -84,6 +86,7 @@ export function registerGroupRoutes(app: Express) {
   app.delete("/groups/:id", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       await prisma.group.delete({ where: { id: req.params.id } });
+      resetGroupCache();
       res.json({ success: true });
     } catch (err: unknown) {
       if ((err as { code?: string }).code === "P2025") {
@@ -126,7 +129,12 @@ export function registerGroupRoutes(app: Express) {
     requireWorkerOrRole("super_admin"),
     async (req, res) => {
       try {
-        const groups = Array.isArray(req.body?.groups) ? req.body.groups : [];
+        const groups = Array.isArray(req.body?.groups)
+          ? req.body.groups.filter(
+              (g: unknown) =>
+                !!g && typeof g === "object" && typeof (g as { id?: unknown }).id === "string"
+            )
+          : [];
         const redis = getRedis();
         await redis.set(DISCOVERY_CACHE_KEY, JSON.stringify(groups), "EX", DISCOVERY_CACHE_TTL_SEC);
         res.json({ success: true, count: groups.length });

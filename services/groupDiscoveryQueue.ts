@@ -21,7 +21,11 @@ const connection = {
 const queue = new Queue(queueName, { connection });
 
 export async function enqueueGroupDiscoveryJob(): Promise<unknown> {
-  const jobPromise = queue.add("group-discovery", {}, { removeOnComplete: 20, removeOnFail: 20 });
+  const jobPromise = queue.add(
+    "group-discovery",
+    {},
+    { jobId: "group-discovery", removeOnComplete: 20, removeOnFail: 20 }
+  );
 
   const timeoutMs = 5000;
   const timeout = new Promise<never>((_, rej) =>

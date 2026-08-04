@@ -256,7 +256,9 @@ async function processScheduleJob(scheduleId: string): Promise<void> {
         : choice.data?.type === "image"
           ? "Foto"
           : "Vídeo";
+      const lastGroupId = groupIds[groupIds.length - 1];
       for (const groupId of groupIds) {
+        const isLastGroup = groupId === lastGroupId;
         if (schedule.includeIntro) {
           payloads.push({ groupId, type: "text", content: `${typeLabel} do dia:` });
         }
@@ -265,9 +267,10 @@ async function processScheduleJob(scheduleId: string): Promise<void> {
             groupId,
             type: "text",
             content: choice.data.content || "",
-            cleanup: choice.data.id
-              ? { type: "phrase", id: choice.data.id }
-              : undefined,
+            cleanup:
+              isLastGroup && choice.data.id
+                ? { type: "phrase", id: choice.data.id }
+                : undefined,
           });
         } else if (choice.kind === "media" && choice.data) {
           const baseInternal = (
@@ -280,7 +283,9 @@ async function processScheduleJob(scheduleId: string): Promise<void> {
             groupId,
             type: choice.data.type as "image" | "video",
             content: `${baseInternal}/media/${choice.data.type}/${filename}`,
-            cleanup: { type: choice.data.type, filename, scope: "media" },
+            cleanup: isLastGroup
+              ? { type: choice.data.type, filename, scope: "media" }
+              : undefined,
           });
         }
       }
