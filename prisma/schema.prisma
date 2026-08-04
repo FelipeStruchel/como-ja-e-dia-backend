@@ -7,13 +7,14 @@ datasource db {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  name         String     @default("")
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String       @default("")
   passwordHash String
-  active       Boolean    @default(false)
-  createdAt    DateTime   @default(now())
+  active       Boolean      @default(false)
+  createdAt    DateTime     @default(now())
   roles        UserRole[]
+  groupAdmins  GroupAdmin[]
 }
 
 model Role {
@@ -268,13 +269,25 @@ model LinkedGroup {
 }
 
 model Group {
-  id                        String   @id
+  id                        String       @id
   name                      String
-  pokemonEnabled            Boolean  @default(false)
-  confessionsEnabled        Boolean  @default(false)
-  scheduledGreetingsEnabled Boolean  @default(false)
-  triggersEnabled           Boolean  @default(false)
-  contextSyncEnabled        Boolean  @default(false)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  pokemonEnabled            Boolean      @default(false)
+  confessionsEnabled        Boolean      @default(false)
+  scheduledGreetingsEnabled Boolean      @default(false)
+  triggersEnabled           Boolean      @default(false)
+  contextSyncEnabled        Boolean      @default(false)
+  createdAt                 DateTime     @default(now())
+  updatedAt                 DateTime     @updatedAt
+  admins                    GroupAdmin[]
+}
+
+model GroupAdmin {
+  id        String   @id @default(cuid())
+  userId    String
+  groupId   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
 }
