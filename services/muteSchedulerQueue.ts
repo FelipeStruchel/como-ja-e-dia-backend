@@ -30,11 +30,18 @@ export async function startMuteScheduler(): Promise<void> {
       repeat: { every: SIX_DAYS_MS },
       removeOnComplete: true,
       removeOnFail: 10,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 60_000 },
     }
   );
 
   // Fire once immediately on boot too, so a fresh deploy doesn't wait up to 6 days.
-  await queue.add("mute-all", {}, { removeOnComplete: true, removeOnFail: 10 });
+  await queue.add("mute-all", {}, {
+    removeOnComplete: true,
+    removeOnFail: 10,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 60_000 },
+  });
 
   log("Mute scheduler iniciado (renovação a cada 6 dias)", "info");
 }
