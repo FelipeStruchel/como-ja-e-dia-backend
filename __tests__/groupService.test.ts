@@ -7,6 +7,10 @@ vi.mock('../services/db.js', () => ({
       findMany: vi.fn(),
       upsert: vi.fn(),
     },
+    groupAdmin: {
+      count: vi.fn(),
+      findMany: vi.fn(),
+    },
   },
 }))
 
@@ -19,6 +23,8 @@ import {
   isContextSyncEnabled,
   resetGroupCache,
   ensureGroupSeeded,
+  isGroupAdminOf,
+  getAdminGroupIds,
 } from '../services/groupService.js'
 
 beforeEach(() => {
@@ -83,6 +89,30 @@ describe('groupService', () => {
         triggersEnabled: true,
         contextSyncEnabled: true,
       },
+    })
+  })
+
+  it('isGroupAdminOf returns true when a GroupAdmin row exists', async () => {
+    vi.mocked(prisma.groupAdmin.count).mockResolvedValue(1)
+    expect(await isGroupAdminOf('u1', 'g1@g.us')).toBe(true)
+  })
+
+  it('isGroupAdminOf returns false and caches the miss for 60s', async () => {
+    vi.mocked(prisma.groupAdmin.count).mockResolvedValue(0)
+    expect(await isGroupAdminOf('u1', 'g1@g.us')).toBe(false)
+    expect(await isGroupAdminOf('u1', 'g1@g.us')).toBe(false)
+    expect(prisma.groupAdmin.count).toHaveBeenCalledTimes(1)
+  })
+
+  it('getAdminGroupIds maps rows to groupIds', async () => {
+    vi.mocked(prisma.groupAdmin.findMany).mockResolvedValue([
+      { groupId: 'a@g.us' },
+      { groupId: 'b@g.us' },
+    ] as any)
+    expect(await getAdminGroupIds('u1')).toEqual(['a@g.us', 'b@g.us'])
+    expect(prisma.groupAdmin.findMany).toHaveBeenCalledWith({
+      where: { userId: 'u1' },
+      select: { groupId: true },
     })
   })
 })

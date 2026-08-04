@@ -9,9 +9,11 @@ type GroupRow = {
 
 const CACHE_TTL_MS = 60_000
 let cache = new Map<string, { row: GroupRow; fetchedAt: number }>()
+let adminCache = new Map<string, { isAdmin: boolean; fetchedAt: number }>()
 
 export function resetGroupCache(): void {
   cache = new Map()
+  adminCache = new Map()
 }
 
 async function fetchGroup(groupId: string): Promise<GroupRow> {
@@ -40,6 +42,22 @@ export async function isTriggersEnabledForGroup(groupId: string): Promise<boolea
 export async function isContextSyncEnabled(groupId: string): Promise<boolean> {
   const row = await fetchGroup(groupId)
   return !!row?.contextSyncEnabled
+}
+
+export async function isGroupAdminOf(userId: string, groupId: string): Promise<boolean> {
+  const key = `${userId}:${groupId}`
+  const cached = adminCache.get(key)
+  const now = Date.now()
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) return cached.isAdmin
+  const count = await prisma.groupAdmin.count({ where: { userId, groupId } })
+  const isAdmin = count > 0
+  adminCache.set(key, { isAdmin, fetchedAt: now })
+  return isAdmin
+}
+
+export async function getAdminGroupIds(userId: string): Promise<string[]> {
+  const rows = await prisma.groupAdmin.findMany({ where: { userId }, select: { groupId: true } })
+  return rows.map((r) => r.groupId)
 }
 
 export async function getPokemonEnabledGroupIds(): Promise<string[]> {
