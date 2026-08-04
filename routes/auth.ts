@@ -10,6 +10,7 @@ import {
   listRoles,
   verifyToken,
 } from "../services/authService.js";
+import { getAdminGroupIds } from "../services/groupService.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 function serializeUser(u: NonNullable<Awaited<ReturnType<typeof getUserById>>>) {
@@ -63,7 +64,8 @@ export function registerAuthRoutes(app: Express) {
       const payload = verifyToken(token);
       const user = await getUserById(payload.sub as string);
       if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
-      res.json({ user: serializeUser(user) });
+      const adminGroupIds = await getAdminGroupIds(user.id);
+      res.json({ user: serializeUser(user), adminGroupIds });
     } catch {
       res.status(401).json({ error: "Token inválido" });
     }
