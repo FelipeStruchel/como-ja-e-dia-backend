@@ -1202,6 +1202,7 @@ export function createCommandProcessor({
 
       const POKEMON_COMMAND_TYPES = new Set([
         CommandType.Pokemons,
+        CommandType.PokemonInfo,
         CommandType.Galeria,
         CommandType.Give,
         CommandType.Trade,

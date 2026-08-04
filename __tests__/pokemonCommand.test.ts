@@ -48,6 +48,7 @@ import { enqueueSendMessage } from '../services/sendQueue.js'
 import { log } from '../services/logger.js'
 import { generateAIAnalysis } from '../services/ai.js'
 import { fetchAndCachePokemon } from '../services/pokemonService.js'
+import { isPokemonEnabled } from '../services/groupService.js'
 
 const ALLOWED_GROUP_ID = '120363339314665620@g.us'
 
@@ -129,6 +130,15 @@ describe('!pokemon <nome> lookup', () => {
         caption: expect.stringContaining('Venusaur'),
       })
     )
+  })
+
+  it('does nothing when pokemon is disabled for the group (same gate as !pokemon)', async () => {
+    vi.mocked(isPokemonEnabled).mockResolvedValueOnce(false)
+    const process = makeProcessor()
+    await process(makeMsg('!pokemon pikachu'))
+
+    expect(fetchAndCachePokemon).not.toHaveBeenCalled()
+    expect(enqueueSendMessage).not.toHaveBeenCalled()
   })
 
   it('replies with a not-found message when neither lookup resolves', async () => {
