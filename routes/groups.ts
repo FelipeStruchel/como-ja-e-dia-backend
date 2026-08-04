@@ -144,4 +144,69 @@ export function registerGroupRoutes(app: Express) {
       }
     }
   );
+
+  app.get("/groups/:groupId/admins", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const admins = await prisma.groupAdmin.findMany({
+        where: { groupId: req.params.groupId },
+        include: { user: { select: { id: true, email: true, name: true } } },
+        orderBy: { createdAt: "asc" },
+      });
+      res.json(
+        admins.map((a) => ({
+          userId: a.user.id,
+          email: a.user.email,
+          name: a.user.name,
+          createdAt: a.createdAt,
+        }))
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao listar admins do grupo";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post("/groups/:groupId/admins", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const email = ((req.body?.email || "") as string).trim().toLowerCase();
+      if (!email) return res.status(400).json({ error: "email é obrigatório" });
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+      const created = await prisma.groupAdmin.create({
+        data: { userId: user.id, groupId: req.params.groupId },
+      });
+      resetGroupCache();
+      res.status(201).json({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        createdAt: created.createdAt,
+      });
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === "P2002") {
+        return res.status(409).json({ error: "Usuário já é admin deste grupo" });
+      }
+      if ((err as { code?: string }).code === "P2003") {
+        return res.status(404).json({ error: "Grupo não encontrado" });
+      }
+      const msg = err instanceof Error ? err.message : "Erro ao adicionar admin";
+      res.status(400).json({ error: msg });
+    }
+  });
+
+  app.delete("/groups/:groupId/admins/:userId", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      await prisma.groupAdmin.delete({
+        where: { userId_groupId: { userId: req.params.userId, groupId: req.params.groupId } },
+      });
+      resetGroupCache();
+      res.json({ success: true });
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === "P2025") {
+        return res.status(404).json({ error: "Admin não encontrado neste grupo" });
+      }
+      const msg = err instanceof Error ? err.message : "Erro ao remover admin";
+      res.status(500).json({ error: msg });
+    }
+  });
 }
