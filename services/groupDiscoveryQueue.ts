@@ -24,7 +24,7 @@ export async function enqueueGroupDiscoveryJob(): Promise<unknown> {
   const jobPromise = queue.add(
     "group-discovery",
     {},
-    { jobId: "group-discovery", removeOnComplete: 20, removeOnFail: 20 }
+    { jobId: "group-discovery", removeOnComplete: true, removeOnFail: true }
   );
 
   const timeoutMs = 5000;
