@@ -16,11 +16,14 @@ vi.mock('../services/db.js', () => ({
 
 vi.mock('../services/redis.js', () => ({ getRedis: vi.fn() }))
 vi.mock('../services/groupDiscoveryQueue.js', () => ({ enqueueGroupDiscoveryJob: vi.fn() }))
-vi.mock('../services/groupService.js', () => ({ resetGroupCache: vi.fn() }))
+vi.mock('../services/groupService.js', () => ({
+  resetGroupCache: vi.fn(),
+  getAdminGroupIds: vi.fn(),
+}))
 
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { prisma } from '../services/db.js'
-import { resetGroupCache } from '../services/groupService.js'
+import { resetGroupCache, getAdminGroupIds } from '../services/groupService.js'
 import { registerGroupRoutes } from '../routes/groups.js'
 
 function makeApp() {
@@ -77,6 +80,17 @@ describe('group admin routes wiring', () => {
       expect(resultIndex).toBeGreaterThanOrEqual(0)
       expect(calls[resultIndex]).toEqual(['super_admin'])
     }
+  })
+
+  it('GET /groups/mine requires auth but not requireRole', () => {
+    const { app, routes } = makeApp()
+    registerGroupRoutes(app)
+    expect(routes['GET /groups/mine']).toContain(requireAuth)
+    // Verify requireRole was NOT used for this route
+    const handlers = routes['GET /groups/mine']
+    const requireRoleResults = vi.mocked(requireRole).mock.results
+    const routeIncludesRequireRole = requireRoleResults.some((r) => handlers.includes(r.value))
+    expect(routeIncludesRequireRole).toBe(false)
   })
 })
 
@@ -159,5 +173,56 @@ describe('DELETE /groups/:groupId/admins/:userId', () => {
     const { req, res } = makeReqRes({}, { groupId: 'g1', userId: 'u1' })
     await handler(req, res)
     expect(res.status).toHaveBeenCalledWith(404)
+  })
+})
+
+describe('GET /groups/mine', () => {
+  it('returns every group for a super_admin', async () => {
+    const { app, routes } = makeApp()
+    registerGroupRoutes(app)
+    const handler = routes['GET /groups/mine'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.group.findMany).mockResolvedValue([
+      { id: 'a@g.us', name: 'A' },
+      { id: 'b@g.us', name: 'B' },
+    ] as any)
+    const req = { user: { id: 'u1', roles: [{ role: { slug: 'super_admin' } }] } } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    expect(prisma.group.findMany).toHaveBeenCalledWith({ orderBy: { createdAt: 'asc' } })
+    expect(getAdminGroupIds).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith([
+      { id: 'a@g.us', name: 'A' },
+      { id: 'b@g.us', name: 'B' },
+    ])
+  })
+
+  it('returns only the groups a scoped admin administers', async () => {
+    const { app, routes } = makeApp()
+    registerGroupRoutes(app)
+    const handler = routes['GET /groups/mine'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(getAdminGroupIds).mockResolvedValue(['a@g.us'])
+    vi.mocked(prisma.group.findMany).mockResolvedValue([{ id: 'a@g.us', name: 'A' }] as any)
+    const req = { user: { id: 'u1', roles: [{ role: { slug: 'bom_dia_admin' } }] } } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    expect(getAdminGroupIds).toHaveBeenCalledWith('u1')
+    expect(prisma.group.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['a@g.us'] } },
+      orderBy: { createdAt: 'asc' },
+    })
+    expect(res.json).toHaveBeenCalledWith([{ id: 'a@g.us', name: 'A' }])
+  })
+
+  it('returns an empty array for a user administering nothing, not an error', async () => {
+    const { app, routes } = makeApp()
+    registerGroupRoutes(app)
+    const handler = routes['GET /groups/mine'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(getAdminGroupIds).mockResolvedValue([])
+    vi.mocked(prisma.group.findMany).mockResolvedValue([] as any)
+    const req = { user: { id: 'u1', roles: [] } } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    expect(prisma.group.findMany).toHaveBeenCalledWith({ where: { id: { in: [] } }, orderBy: { createdAt: 'asc' } })
+    expect(res.json).toHaveBeenCalledWith([])
   })
 })
