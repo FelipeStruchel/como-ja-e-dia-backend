@@ -60,3 +60,6 @@ daily_vid/
 # Misc
 chrome-data/
 .superpowers/
+
+# Git worktrees (local scratch workspaces)
+.worktrees/
