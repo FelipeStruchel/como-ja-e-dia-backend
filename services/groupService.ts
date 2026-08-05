@@ -92,6 +92,7 @@ export async function ensureGroupSeeded(id: string, name: string): Promise<void>
       scheduledGreetingsEnabled: true,
       triggersEnabled: true,
       contextSyncEnabled: true,
+      eventsEnabled: true,
     },
   })
 }

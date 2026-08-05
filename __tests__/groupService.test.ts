@@ -88,6 +88,7 @@ describe('groupService', () => {
         scheduledGreetingsEnabled: true,
         triggersEnabled: true,
         contextSyncEnabled: true,
+        eventsEnabled: true,
       },
     })
   })
