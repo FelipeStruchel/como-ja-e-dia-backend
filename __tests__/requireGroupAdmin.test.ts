@@ -61,12 +61,12 @@ describe('requireGroupAdmin', () => {
     expect(isGroupAdminOf).not.toHaveBeenCalled()
   })
 
-  it('returns 400 when getGroupId resolves to null', async () => {
+  it('returns 403 when getGroupId resolves to null (only super_admin may operate outside a specific group)', async () => {
     vi.mocked(verifyToken).mockReturnValue({ sub: 'u1' } as any)
     vi.mocked(getUserById).mockResolvedValue(mockUser as any)
     const { req, res, next } = makeReqRes('valid-token')
     await requireGroupAdmin(() => null)(req, res, next)
-    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.status).toHaveBeenCalledWith(403)
     expect(next).not.toHaveBeenCalled()
   })
 
