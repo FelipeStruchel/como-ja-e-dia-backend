@@ -63,18 +63,20 @@ function resolveGreeting(now: moment.Moment): string {
   return "boa noite";
 }
 
-async function buildEventsContext(tz: string) {
+async function buildEventsContext(tz: string, groupId: string) {
   const now = moment.tz(tz);
   const start = now.clone().startOf("day");
   const end = now.clone().endOf("day");
 
+  const scope = { OR: [{ groupId: null }, { groupId }] };
+
   const eventsToday = await prisma.event.findMany({
-    where: { date: { gte: start.toDate(), lte: end.toDate() } },
+    where: { ...scope, date: { gte: start.toDate(), lte: end.toDate() } },
     orderBy: { date: "asc" },
   });
 
   const nextEvents = await prisma.event.findMany({
-    where: { date: { gt: end.toDate() } },
+    where: { ...scope, date: { gt: end.toDate() } },
     orderBy: { date: "asc" },
     take: 1,
   });
