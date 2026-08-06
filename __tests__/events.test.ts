@@ -46,9 +46,23 @@ describe('event routes wiring', () => {
 
   it('POST and DELETE use requireGroupAdmin, not requireRole', () => {
     const { app, routes } = makeApp()
+    // requireGroupAdmin is a factory: each call returns a distinct middleware
+    // function. Capture the exact instances it will hand back (POST is wired
+    // first, then DELETE) so we can assert those specific instances end up in
+    // the route's middleware chain — proving requireGroupAdmin actually gates
+    // these routes, rather than asserting on requireAuth (which requireGroupAdmin's
+    // mock never returns).
+    const postGroupAdminMw = vi.fn((req, res, next) => next())
+    const deleteGroupAdminMw = vi.fn((req, res, next) => next())
+    vi.mocked(requireGroupAdmin)
+      .mockReturnValueOnce(postGroupAdminMw)
+      .mockReturnValueOnce(deleteGroupAdminMw)
+
     registerEventRoutes(app, makeDeps())
-    expect(routes['POST /events']).toContain(requireAuth)
-    expect(routes['DELETE /events/:id']).toContain(requireAuth)
+
+    expect(requireGroupAdmin).toHaveBeenCalledTimes(2)
+    expect(routes['POST /events']).toContain(postGroupAdminMw)
+    expect(routes['DELETE /events/:id']).toContain(deleteGroupAdminMw)
   })
 })
 
