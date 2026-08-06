@@ -198,6 +198,7 @@ export async function generateAICaption({
 }
 
 export async function generateAIAnalysis(
+  groupId: string | null,
   messagesArray: Array<{
     body?: string;
     bodySanitized?: string;
@@ -207,7 +208,7 @@ export async function generateAIAnalysis(
   }>
 ): Promise<string | null> {
   if (!process.env.GEMINI_API_KEY) return null;
-  const personaPrompt = await getPersonaPrompt();
+  const personaPrompt = await getPersonaPrompt(groupId);
 
   function redactNumbers(text: string | null | undefined): string {
     if (!text) return text ?? "";

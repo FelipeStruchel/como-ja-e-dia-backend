@@ -1,40 +1,47 @@
 import { Express } from "express";
-import { requireAuth, requireRole } from "../middleware/auth.js";
-import {
-  getPersonaPrompt,
-  savePersonaPrompt,
-  getPersonaCache,
-} from "../services/personaConfig.js";
+import { requireAuth, requireGroupAdmin } from "../middleware/auth.js";
+import { getPersonaPrompt, savePersonaPrompt } from "../services/personaConfig.js";
 import { AI_PERSONA_DEFAULT } from "../services/personaConstants.js";
 import { prisma } from "../services/db.js";
 
-export function registerPersonaRoutes(app: Express) {
-  app.get("/persona", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
-    try {
-      const doc = await prisma.personaConfig.findFirst();
-      const prompt = doc?.prompt || AI_PERSONA_DEFAULT.trim();
-      res.json({
-        prompt,
-        cache: getPersonaCache(),
-        default: AI_PERSONA_DEFAULT.trim(),
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao obter persona";
-      res.status(500).json({ error: msg });
-    }
-  });
+function resolveGroupIdParam(req: { query: Record<string, unknown> }): string | null {
+  const raw = req.query.groupId;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
 
-  app.put("/persona", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
-    try {
-      const prompt = (req.body?.prompt || "").toString();
-      if (!prompt.trim()) {
-        return res.status(400).json({ error: "Prompt não pode ser vazio" });
+export function registerPersonaRoutes(app: Express) {
+  app.get(
+    "/persona",
+    requireGroupAdmin((req) => resolveGroupIdParam(req as any)),
+    async (req, res) => {
+      try {
+        const groupId = resolveGroupIdParam(req);
+        const doc = groupId ? await prisma.personaConfig.findUnique({ where: { groupId } }) : null;
+        const prompt = doc?.prompt || (await getPersonaPrompt(groupId ?? undefined));
+        res.json({ prompt, default: AI_PERSONA_DEFAULT.trim() });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Erro ao obter persona";
+        res.status(500).json({ error: msg });
       }
-      const saved = await savePersonaPrompt(prompt);
-      res.json({ prompt: saved });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao salvar persona";
-      res.status(400).json({ error: msg });
     }
-  });
+  );
+
+  app.put(
+    "/persona",
+    requireGroupAdmin((req) => resolveGroupIdParam(req as any)),
+    async (req, res) => {
+      try {
+        const prompt = (req.body?.prompt || "").toString();
+        if (!prompt.trim()) {
+          return res.status(400).json({ error: "Prompt não pode ser vazio" });
+        }
+        const groupId = resolveGroupIdParam(req);
+        const saved = await savePersonaPrompt(groupId, prompt);
+        res.json({ prompt: saved });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Erro ao salvar persona";
+        res.status(400).json({ error: msg });
+      }
+    }
+  );
 }
