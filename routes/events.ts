@@ -48,6 +48,8 @@ export function registerEventRoutes(
         if (!name || !date)
           return res.status(400).json({ error: "name and date are required" });
 
+        const resolvedGroupId = ((groupId as string) || "").trim() || null;
+
         let m = tz(date, "America/Sao_Paulo");
         if (!m.isValid()) {
           m = momentLib(date);
@@ -61,7 +63,7 @@ export function registerEventRoutes(
         }
 
         const ev = await prisma.event.create({
-          data: { name, date: m.toDate(), groupId: (groupId as string) || null },
+          data: { name, date: m.toDate(), groupId: resolvedGroupId },
         });
         res.status(201).json(ev);
       } catch (err: unknown) {

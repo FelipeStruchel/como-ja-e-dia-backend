@@ -95,3 +95,18 @@ describe('GET /events filtering', () => {
     expect(call.where.OR).toEqual([{ groupId: null }, { groupId: { in: ['a@g.us'] } }])
   })
 })
+
+describe('POST /events groupId trimming', () => {
+  it('persists a trimmed groupId, matching the value used for authorization', async () => {
+    const { app, routes } = makeApp()
+    const deps = makeDeps()
+    registerEventRoutes(app, deps)
+    const handler = routes['POST /events'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(deps.prisma.event.create).mockResolvedValue({ id: 'e1' })
+    const req = { body: { name: 'Party', date: '2026-01-01', groupId: '  a@g.us  ' } } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(deps.prisma.event.create).mock.calls[0][0] as any
+    expect(call.data.groupId).toBe('a@g.us')
+  })
+})
