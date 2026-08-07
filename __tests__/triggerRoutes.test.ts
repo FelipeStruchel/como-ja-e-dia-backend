@@ -87,3 +87,48 @@ describe('GET /triggers filtering', () => {
     expect(call.where.OR).toEqual([{ groupId: null }, { groupId: { in: ['a@g.us'] } }])
   })
 })
+
+describe('PUT /triggers/:id', () => {
+  // A trigger's group is fixed at creation time — PUT must never let the request body
+  // reassign it (a group-A admin could otherwise move a trigger they own into group B,
+  // which they may not administer). Mirrors the equivalent regression test in
+  // __tests__/scheduleRoutes.test.ts for the same bug pattern fixed in Task 5.
+  //
+  // Unlike Schedule.groupId (nullable), Trigger.groupId is a required field enforced by
+  // validateTriggerPayload ("groupId é obrigatório" if empty), so a request body that
+  // omits groupId entirely fails validation before ever reaching prisma.trigger.update —
+  // that path is not a viable regression vector here. Instead, the second case below uses
+  // a body whose groupId matches the trigger's current group, to prove groupId is stripped
+  // unconditionally rather than only when it differs.
+  const validBody = { name: 'x', phrases: ['oi'], responseText: 'resposta' }
+
+  it('never includes groupId in the update payload when the body supplies a different groupId', async () => {
+    const { app, routes } = makeApp()
+    registerTriggerRoutes(app)
+    const handler = routes['PUT /triggers/:id'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.trigger.update).mockResolvedValue({ id: 't1' } as any)
+    const req = {
+      params: { id: 't1' },
+      body: { ...validBody, groupId: 'b@g.us' },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(prisma.trigger.update).mock.calls[0][0] as any
+    expect(call.data).not.toHaveProperty('groupId')
+  })
+
+  it('never includes groupId in the update payload even when the body supplies the same (current) groupId', async () => {
+    const { app, routes } = makeApp()
+    registerTriggerRoutes(app)
+    const handler = routes['PUT /triggers/:id'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.trigger.update).mockResolvedValue({ id: 't1' } as any)
+    const req = {
+      params: { id: 't1' },
+      body: { ...validBody, groupId: 'a@g.us' },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(prisma.trigger.update).mock.calls[0][0] as any
+    expect(call.data).not.toHaveProperty('groupId')
+  })
+})

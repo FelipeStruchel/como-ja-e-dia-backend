@@ -112,11 +112,15 @@ export function registerTriggerRoutes(app: Express) {
     try {
       const payload = parseTriggerPayload(req.body || {});
       validateTriggerPayload(payload);
+      // A trigger's group is fixed at creation time — PUT never reassigns it.
+      // Excluding groupId here prevents a scoped admin from moving a trigger into
+      // a group they don't administer (or accidentally globalizing it by omission).
+      const { groupId: _groupId, ...updateData } = payload;
       let updated;
       try {
         updated = await prisma.trigger.update({
           where: { id: req.params.id },
-          data: payload as Parameters<typeof prisma.trigger.update>[0]["data"],
+          data: updateData as Parameters<typeof prisma.trigger.update>[0]["data"],
         });
       } catch (err: unknown) {
         if ((err as { code?: string }).code === "P2025")
