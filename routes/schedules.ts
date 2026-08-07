@@ -1,6 +1,7 @@
 import { Express } from "express";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireGroupAdmin } from "../middleware/auth.js";
 import { prisma } from "../services/db.js";
+import { getAdminGroupIds } from "../services/groupService.js";
 import {
   clearRepeat,
   registerRepeat,
@@ -9,6 +10,7 @@ import {
 
 function parseSchedule(body: Record<string, unknown>) {
   const safe: Record<string, unknown> = {};
+  safe.groupId = ((body.groupId || "") as string).toString().trim() || null;
   safe.name = ((body.name || "") as string).toString().trim() || "Mensagem";
   safe.kind = ["greeting"].includes(body.kind as string) ? body.kind : "greeting";
 
@@ -61,9 +63,14 @@ function parseSchedule(body: Record<string, unknown>) {
 }
 
 export function registerScheduleRoutes(app: Express) {
-  app.get("/schedules", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
+  app.get("/schedules", requireAuth, async (req, res) => {
     try {
-      const list = await prisma.schedule.findMany({ orderBy: { createdAt: "desc" } });
+      const userSlugs = req.user?.roles?.map((ur) => ur.role.slug) ?? [];
+      const isSuperAdmin = userSlugs.includes("super_admin");
+      const where = isSuperAdmin
+        ? undefined
+        : { OR: [{ groupId: null }, { groupId: { in: await getAdminGroupIds(req.user!.id) } }] };
+      const list = await prisma.schedule.findMany({ where, orderBy: { createdAt: "desc" } });
       res.json(list);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao listar schedules";
@@ -71,7 +78,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/schedules", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
+  app.post("/schedules", requireGroupAdmin((req) => ((req.body?.groupId as string) || "").trim() || null), async (req, res) => {
     try {
       const payload = parseSchedule(req.body || {});
       if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
@@ -84,45 +91,63 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.put("/schedules/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
-    try {
-      const payload = parseSchedule(req.body || {});
-      if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
+  app.put(
+    "/schedules/:id",
+    requireGroupAdmin(async (req) => {
       const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
-      if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });
-      await clearRepeat(existing);
-      const updated = await prisma.schedule.update({
-        where: { id: req.params.id },
-        data: payload as Parameters<typeof prisma.schedule.update>[0]["data"],
-      });
-      await registerRepeat(updated);
-      res.json(updated);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao atualizar schedule";
-      res.status(400).json({ error: msg });
+      return existing?.groupId ?? null;
+    }),
+    async (req, res) => {
+      try {
+        const payload = parseSchedule(req.body || {});
+        if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
+        const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
+        if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });
+        await clearRepeat(existing);
+        const updated = await prisma.schedule.update({
+          where: { id: req.params.id },
+          data: payload as Parameters<typeof prisma.schedule.update>[0]["data"],
+        });
+        await registerRepeat(updated);
+        res.json(updated);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Erro ao atualizar schedule";
+        res.status(400).json({ error: msg });
+      }
     }
-  });
+  );
 
-  app.delete("/schedules/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
-    try {
+  app.delete(
+    "/schedules/:id",
+    requireGroupAdmin(async (req) => {
       const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
-      if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });
-      await clearRepeat(existing);
-      await prisma.schedule.delete({ where: { id: req.params.id } });
-      res.json({ success: true });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao remover schedule";
-      res.status(500).json({ error: msg });
+      return existing?.groupId ?? null;
+    }),
+    async (req, res) => {
+      try {
+        const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
+        if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });
+        await clearRepeat(existing);
+        await prisma.schedule.delete({ where: { id: req.params.id } });
+        res.json({ success: true });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Erro ao remover schedule";
+        res.status(500).json({ error: msg });
+      }
     }
-  });
+  );
 
-  app.post("/schedules/resync", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
-    try {
-      await resyncSchedules();
-      res.json({ success: true });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao resync schedules";
-      res.status(500).json({ error: msg });
+  app.post(
+    "/schedules/resync",
+    requireGroupAdmin(() => null),
+    async (_req, res) => {
+      try {
+        await resyncSchedules();
+        res.json({ success: true });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Erro ao resync schedules";
+        res.status(500).json({ error: msg });
+      }
     }
-  });
+  );
 }

@@ -7,6 +7,7 @@ import { enqueueSendMessage } from "./sendQueue.js";
 import { log } from "./logger.js";
 import { getRandomMedia } from "../mediaManager.js";
 import { getScheduledGreetingsEnabledGroupIds } from "./groupService.js";
+import { getPersonaPrompt } from "./personaConfig.js";
 
 const connection = {
   host: process.env.REDIS_HOST || "redis",
@@ -19,6 +20,7 @@ const schedQueue = new Queue(queueName, { connection });
 interface ScheduleRecord {
   id: string;
   active: boolean;
+  groupId?: string | null;
   cron?: string | null;
   time?: string | null;
   timezone?: string | null;
@@ -174,62 +176,122 @@ function shouldRunToday(schedule: ScheduleRecord, now: moment.Moment): boolean {
   return true;
 }
 
-async function processScheduleJob(scheduleId: string): Promise<void> {
+export async function processScheduleJob(scheduleId: string): Promise<void> {
   const schedule = await prisma.schedule.findUnique({ where: { id: scheduleId } });
   if (!schedule || !schedule.active) return;
   const now = moment.tz(schedule.timezone || "America/Sao_Paulo");
   if (!shouldRunToday(schedule as ScheduleRecord, now)) return;
 
   const greetingHint = resolveGreeting(now);
-  const shouldAnnounceEvents = !!schedule.announceEvents;
-  const eventsContext = shouldAnnounceEvents
-    ? await buildEventsContext(schedule.timezone || "America/Sao_Paulo")
-    : {
-        names: [],
-        eventsTodayDetails: null,
-        nearestDateStr: null,
-        countdown: null,
-        hasEvents: false,
-      };
 
-  let caption: string | null = null;
-  if (schedule.captionMode === "custom") caption = schedule.customCaption || "";
-  else if (schedule.captionMode === "auto") {
-    try {
-      caption = await generateAICaption({
-        purpose: "greeting",
-        names: eventsContext.names,
-        timeStr: eventsContext.eventsTodayDetails,
-        announceEvents: shouldAnnounceEvents,
-        noEvents: shouldAnnounceEvents ? !eventsContext.hasEvents : false,
-        dayOfWeek: now.format("dddd"),
-        todayDateStr: now.format("DD/MM/YYYY"),
-        personaOverride: schedule.personaPrompt || null,
-        eventsTodayDetails: eventsContext.eventsTodayDetails,
-        nearestDateStr: eventsContext.nearestDateStr,
-        countdown: eventsContext.countdown,
-        greetingHint,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log(`Falha ao gerar caption auto: ${msg}`, "warn");
-    }
+  let groupIds: string[];
+  if (schedule.groupId) {
+    groupIds = [schedule.groupId];
+  } else {
+    groupIds = await getScheduledGreetingsEnabledGroupIds();
   }
 
   const payloads: Parameters<typeof enqueueSendMessage>[0][] = [];
-  const groupIds = await getScheduledGreetingsEnabledGroupIds();
   const mediaUrl = schedule.mediaUrl || "";
 
-  for (const groupId of groupIds) {
-    if (schedule.type === "text") {
-      payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
+  if (groupIds.length) {
+    if (schedule.captionMode !== "auto") {
+      // No AI call needed — 'custom' and 'none' captions don't vary by group at all.
+      let caption: string | null = null;
+      if (schedule.captionMode === "custom") caption = schedule.customCaption || "";
+      for (const groupId of groupIds) {
+        if (schedule.type === "text") {
+          payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
+        } else {
+          payloads.push({
+            groupId,
+            type: (schedule.type as "image" | "video") || "image",
+            content: mediaUrl,
+            caption: caption || undefined,
+          });
+        }
+      }
+    } else if (schedule.announceEvents) {
+      // Events (and therefore the caption) can differ per group — one call per group, no bucketing.
+      for (const groupId of groupIds) {
+        const eventsContext = await buildEventsContext(schedule.timezone || "America/Sao_Paulo", groupId);
+        let caption: string | null = null;
+        try {
+          caption = await generateAICaption({
+            purpose: "greeting",
+            names: eventsContext.names,
+            timeStr: eventsContext.eventsTodayDetails,
+            announceEvents: true,
+            noEvents: !eventsContext.hasEvents,
+            dayOfWeek: now.format("dddd"),
+            todayDateStr: now.format("DD/MM/YYYY"),
+            personaOverride: schedule.personaPrompt || (await getPersonaPrompt(groupId)),
+            eventsTodayDetails: eventsContext.eventsTodayDetails,
+            nearestDateStr: eventsContext.nearestDateStr,
+            countdown: eventsContext.countdown,
+            greetingHint,
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log(`Falha ao gerar caption auto para ${groupId}: ${msg}`, "warn");
+        }
+        if (schedule.type === "text") {
+          payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
+        } else {
+          payloads.push({
+            groupId,
+            type: (schedule.type as "image" | "video") || "image",
+            content: mediaUrl,
+            caption: caption || undefined,
+          });
+        }
+      }
     } else {
-      payloads.push({
-        groupId,
-        type: (schedule.type as "image" | "video") || "image",
-        content: mediaUrl,
-        caption: caption || undefined,
-      });
+      // No events to announce — the only thing that can vary by group is persona.
+      // Bucket groups by resolved persona text so identical captions are generated once, not N times.
+      const personaByGroup = new Map<string, string>();
+      for (const groupId of groupIds) {
+        personaByGroup.set(groupId, schedule.personaPrompt || (await getPersonaPrompt(groupId)));
+      }
+      const captionByPersona = new Map<string, string | null>();
+      for (const persona of new Set(personaByGroup.values())) {
+        try {
+          captionByPersona.set(
+            persona,
+            await generateAICaption({
+              purpose: "greeting",
+              names: [],
+              timeStr: null,
+              announceEvents: false,
+              noEvents: false,
+              dayOfWeek: now.format("dddd"),
+              todayDateStr: now.format("DD/MM/YYYY"),
+              personaOverride: persona,
+              eventsTodayDetails: null,
+              nearestDateStr: null,
+              countdown: null,
+              greetingHint,
+            })
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log(`Falha ao gerar caption auto: ${msg}`, "warn");
+          captionByPersona.set(persona, null);
+        }
+      }
+      for (const groupId of groupIds) {
+        const caption = captionByPersona.get(personaByGroup.get(groupId)!) ?? null;
+        if (schedule.type === "text") {
+          payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
+        } else {
+          payloads.push({
+            groupId,
+            type: (schedule.type as "image" | "video") || "image",
+            content: mediaUrl,
+            caption: caption || undefined,
+          });
+        }
+      }
     }
   }
 
