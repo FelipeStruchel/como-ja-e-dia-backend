@@ -14,6 +14,9 @@ vi.mock('../mediaManager.js', () => ({ getRandomMedia: vi.fn().mockResolvedValue
 vi.mock('../services/groupService.js', () => ({
   getScheduledGreetingsEnabledGroupIds: vi.fn(),
   isTriggersEnabledForGroup: vi.fn(),
+  // Default to enabled so existing pinned-groupId tests don't have to opt in;
+  // the "kill switch" test below overrides this once via mockResolvedValueOnce.
+  isScheduledGreetingsEnabledForGroup: vi.fn().mockResolvedValue(true),
 }))
 vi.mock('../services/personaConfig.js', () => ({ getPersonaPrompt: vi.fn() }))
 // mockImplementation must use a plain function (not an arrow function) here because
@@ -29,7 +32,10 @@ import { prisma } from '../services/db.js'
 import { generateAICaption } from '../services/ai.js'
 import { enqueueSendMessage } from '../services/sendQueue.js'
 import { getPersonaPrompt } from '../services/personaConfig.js'
-import { getScheduledGreetingsEnabledGroupIds } from '../services/groupService.js'
+import {
+  getScheduledGreetingsEnabledGroupIds,
+  isScheduledGreetingsEnabledForGroup,
+} from '../services/groupService.js'
 
 // processScheduleJob is not exported today — export it from services/scheduledJobs.ts
 // as part of this task (add `export` to its existing declaration; no behavior change).
@@ -61,6 +67,13 @@ describe('processScheduleJob target resolution', () => {
     vi.mocked(getScheduledGreetingsEnabledGroupIds).mockResolvedValue(['a@g.us', 'b@g.us'])
     await processScheduleJob('s1')
     expect(enqueueSendMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('a schedule pinned to a group with scheduledGreetingsEnabled off targets zero groups', async () => {
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue(baseSchedule() as any)
+    vi.mocked(isScheduledGreetingsEnabledForGroup).mockResolvedValueOnce(false)
+    await processScheduleJob('s1')
+    expect(enqueueSendMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -106,5 +119,29 @@ describe('processScheduleJob AI caption fan-out', () => {
     await processScheduleJob('s1')
     expect(generateAICaption).toHaveBeenCalledTimes(1)
     expect(getPersonaPrompt).not.toHaveBeenCalled()
+  })
+
+  it('never calls generateAICaption for a text-type schedule, even with announceEvents true', async () => {
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue(
+      baseSchedule({ groupId: null, announceEvents: true, captionMode: 'auto', type: 'text' }) as any
+    )
+    vi.mocked(getScheduledGreetingsEnabledGroupIds).mockResolvedValue(['a@g.us', 'b@g.us'])
+    await processScheduleJob('s1')
+    expect(generateAICaption).not.toHaveBeenCalled()
+    expect(enqueueSendMessage).toHaveBeenCalledTimes(2)
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: 'a@g.us', type: 'text', content: 'oi' })
+    )
+  })
+
+  it('never calls generateAICaption for a text-type schedule with announceEvents false (persona-bucket path)', async () => {
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue(
+      baseSchedule({ groupId: null, announceEvents: false, captionMode: 'auto', type: 'text' }) as any
+    )
+    vi.mocked(getScheduledGreetingsEnabledGroupIds).mockResolvedValue(['a@g.us', 'b@g.us'])
+    await processScheduleJob('s1')
+    expect(generateAICaption).not.toHaveBeenCalled()
+    expect(getPersonaPrompt).not.toHaveBeenCalled()
+    expect(enqueueSendMessage).toHaveBeenCalledTimes(2)
   })
 })

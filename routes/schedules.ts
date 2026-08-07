@@ -99,7 +99,10 @@ export function registerScheduleRoutes(app: Express) {
     }),
     async (req, res) => {
       try {
-        const payload = parseSchedule(req.body || {});
+        // A schedule's group is fixed at creation time — PUT never reassigns it.
+        // Excluding groupId here prevents a scoped admin from moving a schedule into
+        // a group they don't administer (or accidentally globalizing it by omission).
+        const { groupId: _groupId, ...payload } = parseSchedule(req.body || {});
         if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
         const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
         if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });

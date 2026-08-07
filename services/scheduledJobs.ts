@@ -6,7 +6,10 @@ import { generateAICaption } from "./ai.js";
 import { enqueueSendMessage } from "./sendQueue.js";
 import { log } from "./logger.js";
 import { getRandomMedia } from "../mediaManager.js";
-import { getScheduledGreetingsEnabledGroupIds } from "./groupService.js";
+import {
+  getScheduledGreetingsEnabledGroupIds,
+  isScheduledGreetingsEnabledForGroup,
+} from "./groupService.js";
 import { getPersonaPrompt } from "./personaConfig.js";
 
 const connection = {
@@ -186,10 +189,15 @@ export async function processScheduleJob(scheduleId: string): Promise<void> {
 
   let groupIds: string[];
   if (schedule.groupId) {
-    groupIds = [schedule.groupId];
+    // scheduledGreetingsEnabled remains a per-group kill switch independent of which
+    // schedules exist — a schedule pinned to a group that has since disabled scheduled
+    // greetings must not fire for that group.
+    const enabled = await isScheduledGreetingsEnabledForGroup(schedule.groupId);
+    groupIds = enabled ? [schedule.groupId] : [];
   } else {
     groupIds = await getScheduledGreetingsEnabledGroupIds();
   }
+  groupIds = [...new Set(groupIds)];
 
   const payloads: Parameters<typeof enqueueSendMessage>[0][] = [];
   const mediaUrl = schedule.mediaUrl || "";
@@ -210,6 +218,13 @@ export async function processScheduleJob(scheduleId: string): Promise<void> {
             caption: caption || undefined,
           });
         }
+      }
+    } else if (schedule.type === "text") {
+      // Text-type schedules never render a caption — schedule.textContent is what gets
+      // sent regardless — so skip the events-context/persona/AI work entirely rather than
+      // generating (and discarding) a caption per group.
+      for (const groupId of groupIds) {
+        payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
       }
     } else if (schedule.announceEvents) {
       // Events (and therefore the caption) can differ per group — one call per group, no bucketing.
@@ -235,16 +250,12 @@ export async function processScheduleJob(scheduleId: string): Promise<void> {
           const msg = err instanceof Error ? err.message : String(err);
           log(`Falha ao gerar caption auto para ${groupId}: ${msg}`, "warn");
         }
-        if (schedule.type === "text") {
-          payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
-        } else {
-          payloads.push({
-            groupId,
-            type: (schedule.type as "image" | "video") || "image",
-            content: mediaUrl,
-            caption: caption || undefined,
-          });
-        }
+        payloads.push({
+          groupId,
+          type: (schedule.type as "image" | "video") || "image",
+          content: mediaUrl,
+          caption: caption || undefined,
+        });
       }
     } else {
       // No events to announce — the only thing that can vary by group is persona.
@@ -281,16 +292,12 @@ export async function processScheduleJob(scheduleId: string): Promise<void> {
       }
       for (const groupId of groupIds) {
         const caption = captionByPersona.get(personaByGroup.get(groupId)!) ?? null;
-        if (schedule.type === "text") {
-          payloads.push({ groupId, type: "text", content: schedule.textContent || "" });
-        } else {
-          payloads.push({
-            groupId,
-            type: (schedule.type as "image" | "video") || "image",
-            content: mediaUrl,
-            caption: caption || undefined,
-          });
-        }
+        payloads.push({
+          groupId,
+          type: (schedule.type as "image" | "video") || "image",
+          content: mediaUrl,
+          caption: caption || undefined,
+        });
       }
     }
   }

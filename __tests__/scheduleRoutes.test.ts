@@ -98,6 +98,40 @@ describe('GET /schedules filtering', () => {
   })
 })
 
+describe('PUT /schedules/:id', () => {
+  it('never includes groupId in the update payload, even when the request body supplies one', async () => {
+    const { app, routes } = makeApp()
+    registerScheduleRoutes(app)
+    const handler = routes['PUT /schedules/:id'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue({ id: 'sch1', groupId: 'a@g.us', repeatJobKey: '' } as any)
+    vi.mocked(prisma.schedule.update).mockResolvedValue({ id: 'sch1' } as any)
+    const req = {
+      params: { id: 'sch1' },
+      body: { groupId: 'b@g.us', name: 'x', cron: '0 6 * * *' },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(prisma.schedule.update).mock.calls[0][0] as any
+    expect(call.data).not.toHaveProperty('groupId')
+  })
+
+  it('never globalizes a schedule when the request body omits groupId entirely', async () => {
+    const { app, routes } = makeApp()
+    registerScheduleRoutes(app)
+    const handler = routes['PUT /schedules/:id'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue({ id: 'sch1', groupId: 'a@g.us', repeatJobKey: '' } as any)
+    vi.mocked(prisma.schedule.update).mockResolvedValue({ id: 'sch1' } as any)
+    const req = {
+      params: { id: 'sch1' },
+      body: { name: 'x', cron: '0 6 * * *' },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(prisma.schedule.update).mock.calls[0][0] as any
+    expect(call.data).not.toHaveProperty('groupId')
+  })
+})
+
 describe('POST /schedules/resync', () => {
   it('is registered with requireGroupAdmin gating (super_admin-only via requireGroupAdmin(() => null))', async () => {
     // The real middleware is mocked as a pass-through above for wiring checks;
