@@ -1,5 +1,6 @@
 import { Express } from "express";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireGroupAdmin } from "../middleware/auth.js";
+import { getAdminGroupIds } from "../services/groupService.js";
 import { prisma } from "../services/db.js";
 
 function parseTriggerPayload(body: Record<string, unknown>) {
@@ -71,9 +72,20 @@ function validateTriggerPayload(payload: Record<string, unknown>) {
 }
 
 export function registerTriggerRoutes(app: Express) {
-  app.get("/triggers", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
+  app.get("/triggers", requireAuth, async (req, res) => {
     try {
-      const list = await prisma.trigger.findMany({ orderBy: { createdAt: "desc" } });
+      const userSlugs = req.user?.roles?.map((ur) => ur.role.slug) ?? [];
+      const isSuperAdmin = userSlugs.includes("super_admin");
+      // Trigger.groupId is a required (non-nullable) column, so Prisma's generated
+      // TriggerWhereInput type doesn't accept `groupId: null` even though that branch
+      // never matches any row in practice. Cast to keep the query shape identical to
+      // Events/Schedules for consistency; it's harmless since it's always a no-op filter.
+      const where = (isSuperAdmin
+        ? undefined
+        : { OR: [{ groupId: null }, { groupId: { in: await getAdminGroupIds(req.user!.id) } }] }) as
+        | NonNullable<Parameters<typeof prisma.trigger.findMany>[0]>["where"]
+        | undefined;
+      const list = await prisma.trigger.findMany({ where, orderBy: { createdAt: "desc" } });
       res.json(list);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao listar triggers";
@@ -81,7 +93,7 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.post("/triggers", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
+  app.post("/triggers", requireGroupAdmin((req) => ((req.body?.groupId as string) || "").trim() || null), async (req, res) => {
     try {
       const payload = parseTriggerPayload(req.body || {});
       validateTriggerPayload(payload);
@@ -93,7 +105,10 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.put("/triggers/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
+  app.put("/triggers/:id", requireGroupAdmin(async (req) => {
+    const existing = await prisma.trigger.findUnique({ where: { id: req.params.id } });
+    return existing?.groupId ?? null;
+  }), async (req, res) => {
     try {
       const payload = parseTriggerPayload(req.body || {});
       validateTriggerPayload(payload);
@@ -115,7 +130,10 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.delete("/triggers/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
+  app.delete("/triggers/:id", requireGroupAdmin(async (req) => {
+    const existing = await prisma.trigger.findUnique({ where: { id: req.params.id } });
+    return existing?.groupId ?? null;
+  }), async (req, res) => {
     try {
       try {
         await prisma.trigger.delete({ where: { id: req.params.id } });
