@@ -62,27 +62,60 @@ describe('persona routes wiring', () => {
 })
 
 describe('GET /persona', () => {
-  it('a ?groupId= query string reaches the lookup and getPersonaPrompt with that exact value', async () => {
+  it('a ?groupId= query string reaches the lookup with that exact value', async () => {
     const { app, routes } = makeApp()
     registerPersonaRoutes(app)
     const handler = routes['GET /persona'].at(-1) as (req: any, res: any) => Promise<void>
     vi.mocked(prisma.personaConfig.findUnique).mockResolvedValue(null)
-    vi.mocked(getPersonaPrompt).mockResolvedValue('resolved prompt')
     const { req, res } = makeReqRes({ groupId: 'a@g.us' })
     await handler(req, res)
     expect(prisma.personaConfig.findUnique).toHaveBeenCalledWith({ where: { groupId: 'a@g.us' } })
-    expect(getPersonaPrompt).toHaveBeenCalledWith('a@g.us')
   })
 
-  it('an omitted groupId resolves to null (no group-specific lookup, getPersonaPrompt(undefined))', async () => {
+  it('an omitted groupId resolves to null and still queries the DB (global fallback row)', async () => {
     const { app, routes } = makeApp()
     registerPersonaRoutes(app)
     const handler = routes['GET /persona'].at(-1) as (req: any, res: any) => Promise<void>
-    vi.mocked(getPersonaPrompt).mockResolvedValue('global prompt')
+    vi.mocked(prisma.personaConfig.findUnique).mockResolvedValue(null)
     const { req, res } = makeReqRes({})
     await handler(req, res)
-    expect(prisma.personaConfig.findUnique).not.toHaveBeenCalled()
-    expect(getPersonaPrompt).toHaveBeenCalledWith(undefined)
+    expect(prisma.personaConfig.findUnique).toHaveBeenCalledWith({ where: { groupId: null } })
+  })
+
+  it('returns the RAW prompt when a group-specific row exists, never the guards-wrapped getPersonaPrompt result', async () => {
+    const { app, routes } = makeApp()
+    registerPersonaRoutes(app)
+    const handler = routes['GET /persona'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.personaConfig.findUnique).mockResolvedValue({ prompt: 'raw group tone' } as any)
+    vi.mocked(getPersonaPrompt).mockResolvedValue('GUARDS...\n\nraw group tone')
+    const { req, res } = makeReqRes({ groupId: 'a@g.us' })
+    await handler(req, res)
+    expect(res.json).toHaveBeenCalledWith({ prompt: 'raw group tone', default: expect.any(String) })
+    expect(getPersonaPrompt).not.toHaveBeenCalled()
+  })
+
+  it('returns the RAW prompt for the global row when groupId is omitted, never the guards-wrapped getPersonaPrompt result', async () => {
+    const { app, routes } = makeApp()
+    registerPersonaRoutes(app)
+    const handler = routes['GET /persona'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.personaConfig.findUnique).mockResolvedValue({ prompt: 'raw global tone' } as any)
+    vi.mocked(getPersonaPrompt).mockResolvedValue('GUARDS...\n\nraw global tone')
+    const { req, res } = makeReqRes({})
+    await handler(req, res)
+    expect(res.json).toHaveBeenCalledWith({ prompt: 'raw global tone', default: expect.any(String) })
+    expect(getPersonaPrompt).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the raw hardcoded default (not getPersonaPrompt) when no row exists at all', async () => {
+    const { app, routes } = makeApp()
+    registerPersonaRoutes(app)
+    const handler = routes['GET /persona'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.personaConfig.findUnique).mockResolvedValue(null)
+    const { req, res } = makeReqRes({})
+    await handler(req, res)
+    const call = vi.mocked(res.json).mock.calls[0][0] as any
+    expect(call.prompt).toBe(call.default)
+    expect(getPersonaPrompt).not.toHaveBeenCalled()
   })
 })
 

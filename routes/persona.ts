@@ -1,6 +1,7 @@
 import { Express } from "express";
-import { requireAuth, requireGroupAdmin } from "../middleware/auth.js";
-import { getPersonaPrompt, savePersonaPrompt } from "../services/personaConfig.js";
+import { Prisma } from "@prisma/client";
+import { requireGroupAdmin } from "../middleware/auth.js";
+import { savePersonaPrompt } from "../services/personaConfig.js";
 import { AI_PERSONA_DEFAULT } from "../services/personaConstants.js";
 import { prisma } from "../services/db.js";
 
@@ -16,8 +17,15 @@ export function registerPersonaRoutes(app: Express) {
     async (req, res) => {
       try {
         const groupId = resolveGroupIdParam(req);
-        const doc = groupId ? await prisma.personaConfig.findUnique({ where: { groupId } }) : null;
-        const prompt = doc?.prompt || (await getPersonaPrompt(groupId ?? undefined));
+        // Always look up the row directly for whatever groupId resolves to
+        // (including null for the global fallback) and return the RAW
+        // prompt text — never through getPersonaPrompt, which exists to
+        // produce the guards-wrapped production text, not the editable raw
+        // text the admin UI shows/edits.
+        const doc = await prisma.personaConfig.findUnique({
+          where: { groupId } as unknown as Prisma.PersonaConfigWhereUniqueInput,
+        });
+        const prompt = doc?.prompt || AI_PERSONA_DEFAULT.trim();
         res.json({ prompt, default: AI_PERSONA_DEFAULT.trim() });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Erro ao obter persona";
