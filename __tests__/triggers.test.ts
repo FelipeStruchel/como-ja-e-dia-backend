@@ -72,3 +72,85 @@ describe('createTriggerProcessor group scoping', () => {
     expect(enqueueSendMessage).not.toHaveBeenCalled()
   })
 })
+
+describe('createTriggerProcessor echo response', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('replaces only the matched substring, keeping the rest of the message (contains)', async () => {
+    vi.mocked(prisma.trigger.findMany).mockResolvedValue([
+      baseTrigger({
+        matchType: 'contains',
+        wholeWord: false,
+        phrases: ['bom dia'],
+        responseType: 'echo',
+        responseText: 'boa noite',
+      }),
+    ] as any)
+    vi.mocked(isTriggersEnabledForGroup).mockResolvedValue(true)
+    const processTrigger = createTriggerProcessor({ log: vi.fn() as any, isDbConnected: () => true })
+
+    await processTrigger({ body: 'bom dia galera!!', from: 'groupA@g.us', author: 'u1', id: 'm1' })
+
+    const call = vi.mocked(enqueueSendMessage).mock.calls[0][0] as any
+    expect(call.type).toBe('text')
+    expect(call.content).toBe('boa noite galera!!')
+  })
+
+  it('replaces the full regex match, keeping text on both sides', async () => {
+    vi.mocked(prisma.trigger.findMany).mockResolvedValue([
+      baseTrigger({
+        matchType: 'regex',
+        phrases: ['bom d[ia]+'],
+        responseType: 'echo',
+        responseText: 'boa noite',
+      }),
+    ] as any)
+    vi.mocked(isTriggersEnabledForGroup).mockResolvedValue(true)
+    const processTrigger = createTriggerProcessor({ log: vi.fn() as any, isDbConnected: () => true })
+
+    await processTrigger({ body: 'eae bom diaaa pessoal', from: 'groupA@g.us', author: 'u1', id: 'm1' })
+
+    const call = vi.mocked(enqueueSendMessage).mock.calls[0][0] as any
+    expect(call.content).toBe('eae boa noite pessoal')
+  })
+
+  it('replaces only the first occurrence when the phrase appears more than once', async () => {
+    vi.mocked(prisma.trigger.findMany).mockResolvedValue([
+      baseTrigger({
+        matchType: 'contains',
+        wholeWord: false,
+        phrases: ['oi'],
+        responseType: 'echo',
+        responseText: 'tchau',
+      }),
+    ] as any)
+    vi.mocked(isTriggersEnabledForGroup).mockResolvedValue(true)
+    const processTrigger = createTriggerProcessor({ log: vi.fn() as any, isDbConnected: () => true })
+
+    await processTrigger({ body: 'oi galera oi', from: 'groupA@g.us', author: 'u1', id: 'm1' })
+
+    const call = vi.mocked(enqueueSendMessage).mock.calls[0][0] as any
+    expect(call.content).toBe('tchau galera oi')
+  })
+
+  it('splices into the original (non-normalized) text even when the match was found case/accent-insensitively', async () => {
+    vi.mocked(prisma.trigger.findMany).mockResolvedValue([
+      baseTrigger({
+        matchType: 'contains',
+        wholeWord: false,
+        caseSensitive: false,
+        normalizeAccents: true,
+        phrases: ['cafe'],
+        responseType: 'echo',
+        responseText: 'com leite',
+      }),
+    ] as any)
+    vi.mocked(isTriggersEnabledForGroup).mockResolvedValue(true)
+    const processTrigger = createTriggerProcessor({ log: vi.fn() as any, isDbConnected: () => true })
+
+    await processTrigger({ body: 'quero café gelado', from: 'groupA@g.us', author: 'u1', id: 'm1' })
+
+    const call = vi.mocked(enqueueSendMessage).mock.calls[0][0] as any
+    expect(call.content).toBe('quero com leite gelado')
+  })
+})

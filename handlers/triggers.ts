@@ -51,12 +51,18 @@ interface IncomingMsg {
   id?: string;
 }
 
-function buildMatcher(trigger: TriggerRecord): (text: string) => boolean {
+interface MatchResult {
+  matched: boolean;
+  start?: number;
+  end?: number;
+}
+
+function buildMatcher(trigger: TriggerRecord): (text: string) => MatchResult {
   const phrases = trigger.phrases || [];
   const flags = trigger.caseSensitive ? "" : "i";
 
   return (text: string) => {
-    if (!text) return false;
+    if (!text) return { matched: false };
     const normalizedText = normalize(text, trigger.normalizeAccents, trigger.caseSensitive);
     for (const phrase of phrases) {
       if (!phrase) continue;
@@ -64,7 +70,8 @@ function buildMatcher(trigger: TriggerRecord): (text: string) => boolean {
         const pattern = normalize(phrase, trigger.normalizeAccents, trigger.caseSensitive);
         try {
           const re = new RegExp(pattern, flags);
-          if (re.test(normalizedText)) return true;
+          const m = re.exec(normalizedText);
+          if (m) return { matched: true, start: m.index, end: m.index + m[0].length };
         } catch {
           continue;
         }
@@ -72,22 +79,30 @@ function buildMatcher(trigger: TriggerRecord): (text: string) => boolean {
         const needle = normalize(phrase, trigger.normalizeAccents, trigger.caseSensitive);
         if (trigger.wholeWord) {
           const re = new RegExp(`\\b${escapeRegex(needle)}\\b`);
-          if (re.test(normalizedText)) return true;
+          const m = re.exec(normalizedText);
+          if (m) return { matched: true, start: m.index, end: m.index + m[0].length };
         } else {
-          if (normalizedText === needle) return true;
+          if (normalizedText === needle) return { matched: true, start: 0, end: normalizedText.length };
         }
       } else if (trigger.matchType === "contains") {
         const needle = normalize(phrase, trigger.normalizeAccents, trigger.caseSensitive);
         if (trigger.wholeWord) {
           const re = new RegExp(`\\b${escapeRegex(needle)}\\b`);
-          if (re.test(normalizedText)) return true;
+          const m = re.exec(normalizedText);
+          if (m) return { matched: true, start: m.index, end: m.index + m[0].length };
         } else {
-          if (normalizedText.includes(needle)) return true;
+          const idx = normalizedText.indexOf(needle);
+          if (idx !== -1) return { matched: true, start: idx, end: idx + needle.length };
         }
       }
     }
-    return false;
+    return { matched: false };
   };
+}
+
+function buildEchoContent(original: string, match: MatchResult, replacement: string): string {
+  if (match.start === undefined || match.end === undefined) return replacement;
+  return original.slice(0, match.start) + replacement + original.slice(match.end);
 }
 
 export function createTriggerProcessor({
@@ -166,7 +181,8 @@ export function createTriggerProcessor({
         }
 
         const matcher = buildMatcher(trig);
-        if (!matcher(msg.body || "")) continue;
+        const match = matcher(msg.body || "");
+        if (!match.matched) continue;
 
         if (trig.chancePercent < 100) {
           const roll = Math.random() * 100;
@@ -192,14 +208,17 @@ export function createTriggerProcessor({
           mediaUrl = `${base}/${mediaUrl.replace(/^\/+/, "")}`;
         }
 
+        const isEcho = trig.responseType === "echo";
         const payload: Parameters<typeof enqueueSendMessage>[0] = {
           groupId: msg.from,
-          type: trig.responseType as "text" | "image" | "video",
+          type: (isEcho ? "text" : trig.responseType) as "text" | "image" | "video",
           content:
             trig.responseType === "text"
               ? trig.responseText || "(sem texto configurado)"
-              : mediaUrl || trig.responseMediaUrl || "",
-          caption: trig.responseType === "text" ? undefined : trig.responseText || undefined,
+              : isEcho
+                ? buildEchoContent(msg.body || "", match, trig.responseText || "")
+                : mediaUrl || trig.responseMediaUrl || "",
+          caption: trig.responseType === "text" || isEcho ? undefined : trig.responseText || undefined,
           replyTo: trig.replyMode === "reply" ? msg.id : undefined,
           mentions: trig.mentionSender && msg.author ? [msg.author] : [],
         };
