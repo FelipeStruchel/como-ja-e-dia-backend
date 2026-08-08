@@ -870,35 +870,44 @@ export function createCommandProcessor({
   }
 
   async function handleAjudaCommand(msg: IncomingMsg): Promise<void> {
-    const texto = [
+    const pokemonOn = msg.from ? await isPokemonEnabled(msg.from) : false
+
+    const lines = [
       `🤖 *Comandos disponíveis*`,
       `${"─".repeat(28)}`,
       ``,
       `*📋 Geral*`,
-      `!pokemons — lista seus Pokémons capturados`,
-      `!galeria — recebe as fotos da sua coleção no PV`,
       `!analise _<n>_ — análise das últimas _n_ mensagens (padrão: 10, máx: 30)`,
       `!all — menciona todo mundo do grupo`,
-      `!forcespawn — convoca um Pokémon selvagem (1x por dia; quem convoca não pode capturar por 5 min; máx 5 por dia no grupo)`,
-      ``,
-      `*🎁 Transferência*`,
-      `!give @numero _Pokemon1, Pokemon2_ — dá um ou mais Pokémons para alguém`,
-      ``,
-      `*🔄 Troca*`,
-      `!trade @numero _Pokemon_ — propõe uma troca`,
-      `!aceitar _Pokemon_ — contra-propõe o que você dá de volta`,
-      `!confirmar — confirma a troca após ver a contra-proposta`,
-      `!recusar — recusa uma proposta recebida`,
-      `!cancelar — desiste da troca após ver a contra-proposta`,
-      ``,
-      `*🎴 Miru*`,
-      `!miru help — ver comandos do sistema Miru`,
-    ].join("\n")
+    ]
+
+    if (pokemonOn) {
+      lines.push(
+        `!pokemons — lista seus Pokémons capturados`,
+        `!galeria — recebe as fotos da sua coleção no PV`,
+        `!pokemon <nome> — busca informações de qualquer Pokémon`,
+        `!forcespawn — convoca um Pokémon selvagem (1x por dia; quem convoca não pode capturar por 5 min; máx 5 por dia no grupo)`,
+        ``,
+        `*🎁 Transferência*`,
+        `!give @numero _Pokemon1, Pokemon2_ — dá um ou mais Pokémons para alguém`,
+        ``,
+        `*🔄 Troca*`,
+        `!trade @numero _Pokemon_ — propõe uma troca`,
+        `!aceitar _Pokemon_ — contra-propõe o que você dá de volta`,
+        `!confirmar — confirma a troca após ver a contra-proposta`,
+        `!recusar — recusa uma proposta recebida`,
+        `!cancelar — desiste da troca após ver a contra-proposta`
+      )
+    } else {
+      lines.push(``, `_Recursos de Pokémon estão desativados neste grupo._`)
+    }
+
+    lines.push(``, `*🎴 Miru*`, `!miru help — ver comandos do sistema Miru`)
 
     await enqueueFn({
       groupId: msg.from,
       type: "text",
-      content: texto,
+      content: lines.join("\n"),
       replyTo: msg.id,
     })
   }
