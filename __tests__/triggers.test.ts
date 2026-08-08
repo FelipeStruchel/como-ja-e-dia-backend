@@ -153,4 +153,43 @@ describe('createTriggerProcessor echo response', () => {
     const call = vi.mocked(enqueueSendMessage).mock.calls[0][0] as any
     expect(call.content).toBe('quero com leite gelado')
   })
+
+  it('handles NFD-encoded (decomposed) accented input without corrupting the echo splice', async () => {
+    vi.mocked(prisma.trigger.findMany).mockResolvedValue([
+      baseTrigger({
+        matchType: 'contains',
+        wholeWord: false,
+        phrases: ['cafe'],
+        responseType: 'echo',
+        responseText: 'chá',
+      }),
+    ] as any)
+    vi.mocked(isTriggersEnabledForGroup).mockResolvedValue(true)
+    const processTrigger = createTriggerProcessor({ log: vi.fn() as any, isDbConnected: () => true })
+
+    const nfdBody = 'quero café gelado hoje'.normalize('NFD')
+    await processTrigger({ body: nfdBody, from: 'groupA@g.us', author: 'u1', id: 'm1' })
+
+    const call = vi.mocked(enqueueSendMessage).mock.calls[0][0] as any
+    expect(call.content).toBe('quero chá gelado hoje')
+  })
+
+  it('replaces the matched substring correctly when wholeWord is true', async () => {
+    vi.mocked(prisma.trigger.findMany).mockResolvedValue([
+      baseTrigger({
+        matchType: 'contains',
+        wholeWord: true,
+        phrases: ['bom dia'],
+        responseType: 'echo',
+        responseText: 'boa noite',
+      }),
+    ] as any)
+    vi.mocked(isTriggersEnabledForGroup).mockResolvedValue(true)
+    const processTrigger = createTriggerProcessor({ log: vi.fn() as any, isDbConnected: () => true })
+
+    await processTrigger({ body: 'eae, bom dia galera', from: 'groupA@g.us', author: 'u1', id: 'm1' })
+
+    const call = vi.mocked(enqueueSendMessage).mock.calls[0][0] as any
+    expect(call.content).toBe('eae, boa noite galera')
+  })
 })

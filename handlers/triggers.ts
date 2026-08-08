@@ -167,6 +167,7 @@ export function createTriggerProcessor({
       const now = Date.now();
       const senderId = msg.author || msg.from || "";
       const senderNorm = normalizeJid(senderId);
+      const body = (msg.body || "").normalize("NFC");
 
       for (const trig of triggers) {
         if (!trig.active) continue;
@@ -181,7 +182,7 @@ export function createTriggerProcessor({
         }
 
         const matcher = buildMatcher(trig);
-        const match = matcher(msg.body || "");
+        const match = matcher(body);
         if (!match.matched) continue;
 
         if (trig.chancePercent < 100) {
@@ -216,7 +217,7 @@ export function createTriggerProcessor({
             trig.responseType === "text"
               ? trig.responseText || "(sem texto configurado)"
               : isEcho
-                ? buildEchoContent(msg.body || "", match, trig.responseText || "")
+                ? buildEchoContent(body, match, trig.responseText || "")
                 : mediaUrl || trig.responseMediaUrl || "",
           caption: trig.responseType === "text" || isEcho ? undefined : trig.responseText || undefined,
           replyTo: trig.replyMode === "reply" ? msg.id : undefined,
