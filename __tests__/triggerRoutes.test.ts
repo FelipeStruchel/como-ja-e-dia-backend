@@ -74,7 +74,7 @@ describe('GET /triggers filtering', () => {
     expect(getAdminGroupIds).not.toHaveBeenCalled()
   })
 
-  it('a scoped admin sees only their groups (plus the always-empty-in-practice global branch)', async () => {
+  it('a scoped admin sees only their groups (no OR/null branch — Trigger.groupId is required, no global concept)', async () => {
     const { app, routes } = makeApp()
     registerTriggerRoutes(app)
     const handler = routes['GET /triggers'].at(-1) as (req: any, res: any) => Promise<void>
@@ -84,7 +84,7 @@ describe('GET /triggers filtering', () => {
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
     await handler(req, res)
     const call = vi.mocked(prisma.trigger.findMany).mock.calls[0][0] as any
-    expect(call.where.OR).toEqual([{ groupId: null }, { groupId: { in: ['a@g.us'] } }])
+    expect(call.where).toEqual({ groupId: { in: ['a@g.us'] } })
   })
 })
 

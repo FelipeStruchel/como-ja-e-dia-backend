@@ -176,6 +176,35 @@ describe('DELETE /groups/:groupId/admins/:userId', () => {
   })
 })
 
+describe('PATCH /groups/:id', () => {
+  it('accepts and persists eventsEnabled alongside the other feature flags', async () => {
+    const { app, routes } = makeApp()
+    registerGroupRoutes(app)
+    const handler = routes['PATCH /groups/:id'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.group.update).mockResolvedValue({ id: 'g1', eventsEnabled: true } as any)
+    const { req, res } = makeReqRes({ eventsEnabled: true }, { id: 'g1' })
+    await handler(req, res)
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 'g1' },
+      data: { eventsEnabled: true },
+    })
+    expect(resetGroupCache).toHaveBeenCalled()
+  })
+})
+
+describe('POST /groups', () => {
+  it('creates a new group with eventsEnabled defaulted to false, matching the other feature flags', async () => {
+    const { app, routes } = makeApp()
+    registerGroupRoutes(app)
+    const handler = routes['POST /groups'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.group.create).mockResolvedValue({ id: 'g1', name: 'G1' } as any)
+    const { req, res } = makeReqRes({ id: 'g1', name: 'G1' })
+    await handler(req, res)
+    const call = vi.mocked(prisma.group.create).mock.calls[0][0] as any
+    expect(call.data.eventsEnabled).toBe(false)
+  })
+})
+
 describe('GET /groups/mine', () => {
   it('returns every group for a super_admin', async () => {
     const { app, routes } = makeApp()

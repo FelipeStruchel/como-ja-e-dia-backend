@@ -10,8 +10,14 @@ vi.mock('../services/groupService.js', () => ({
   getAdminGroupIds: vi.fn(),
 }))
 
+vi.mock('../services/authService.js', () => ({
+  verifyToken: vi.fn(),
+  getUserById: vi.fn(),
+}))
+
 import { requireAuth, requireGroupAdmin } from '../middleware/auth.js'
 import { getAdminGroupIds } from '../services/groupService.js'
+import { verifyToken, getUserById } from '../services/authService.js'
 import { registerEventRoutes } from '../routes/events.js'
 
 function makeApp() {
@@ -38,10 +44,10 @@ function makeDeps() {
 beforeEach(() => vi.clearAllMocks())
 
 describe('event routes wiring', () => {
-  it('GET /events requires auth (no longer public)', () => {
+  it('GET /events does not require auth (public page, auth is optional)', () => {
     const { app, routes } = makeApp()
     registerEventRoutes(app, makeDeps())
-    expect(routes['GET /events']).toContain(requireAuth)
+    expect(routes['GET /events']).not.toContain(requireAuth)
   })
 
   it('POST and DELETE use requireGroupAdmin, not requireRole', () => {
@@ -88,11 +94,57 @@ describe('GET /events filtering', () => {
     const handler = routes['GET /events'].at(-1) as (req: any, res: any) => Promise<void>
     vi.mocked(getAdminGroupIds).mockResolvedValue(['a@g.us'])
     vi.mocked(deps.prisma.event.findMany).mockResolvedValue([])
-    const req = { user: { id: 'u1', roles: [] } } as any
+    const req = { user: { id: 'u1', roles: [] }, headers: {} } as any
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
     await handler(req, res)
     const call = vi.mocked(deps.prisma.event.findMany).mock.calls[0][0] as any
     expect(call.where.OR).toEqual([{ groupId: null }, { groupId: { in: ['a@g.us'] } }])
+  })
+
+  it('no auth header (anonymous visitor) sees only groupId: null events', async () => {
+    const { app, routes } = makeApp()
+    const deps = makeDeps()
+    registerEventRoutes(app, deps)
+    const handler = routes['GET /events'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(deps.prisma.event.findMany).mockResolvedValue([])
+    const req = { headers: {} } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(deps.prisma.event.findMany).mock.calls[0][0] as any
+    expect(call.where.groupId).toBeNull()
+    expect(call.where.OR).toBeUndefined()
+    expect(getAdminGroupIds).not.toHaveBeenCalled()
+  })
+
+  it('an invalid/expired bearer token is treated as anonymous rather than rejected', async () => {
+    const { app, routes } = makeApp()
+    const deps = makeDeps()
+    registerEventRoutes(app, deps)
+    const handler = routes['GET /events'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(verifyToken).mockImplementation(() => { throw new Error('invalid token') })
+    vi.mocked(deps.prisma.event.findMany).mockResolvedValue([])
+    const req = { headers: { authorization: 'Bearer bad-token' } } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    expect(res.status).not.toHaveBeenCalledWith(401)
+    const call = vi.mocked(deps.prisma.event.findMany).mock.calls[0][0] as any
+    expect(call.where.groupId).toBeNull()
+  })
+
+  it('a valid bearer token (no requireAuth middleware in front) resolves the user and applies scoped filtering', async () => {
+    const { app, routes } = makeApp()
+    const deps = makeDeps()
+    registerEventRoutes(app, deps)
+    const handler = routes['GET /events'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(verifyToken).mockReturnValue({ sub: 'u1' } as any)
+    vi.mocked(getUserById).mockResolvedValue({ id: 'u1', roles: [{ role: { slug: 'super_admin' } }] } as any)
+    vi.mocked(deps.prisma.event.findMany).mockResolvedValue([])
+    const req = { headers: { authorization: 'Bearer good-token' } } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(deps.prisma.event.findMany).mock.calls[0][0] as any
+    expect(call.where.groupId).toBeUndefined()
+    expect(call.where.OR).toBeUndefined()
   })
 })
 

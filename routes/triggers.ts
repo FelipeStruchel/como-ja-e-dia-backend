@@ -76,15 +76,12 @@ export function registerTriggerRoutes(app: Express) {
     try {
       const userSlugs = req.user?.roles?.map((ur) => ur.role.slug) ?? [];
       const isSuperAdmin = userSlugs.includes("super_admin");
-      // Trigger.groupId is a required (non-nullable) column, so Prisma's generated
-      // TriggerWhereInput type doesn't accept `groupId: null` even though that branch
-      // never matches any row in practice. Cast to keep the query shape identical to
-      // Events/Schedules for consistency; it's harmless since it's always a no-op filter.
-      const where = (isSuperAdmin
+      // Unlike Event/Schedule, Trigger.groupId is a required (non-nullable) column and
+      // there is no "global" trigger concept — a trigger always belongs to exactly one
+      // real group. So the scoped-admin filter has no OR/null branch at all.
+      const where = isSuperAdmin
         ? undefined
-        : { OR: [{ groupId: null }, { groupId: { in: await getAdminGroupIds(req.user!.id) } }] }) as
-        | NonNullable<Parameters<typeof prisma.trigger.findMany>[0]>["where"]
-        | undefined;
+        : { groupId: { in: await getAdminGroupIds(req.user!.id) } };
       const list = await prisma.trigger.findMany({ where, orderBy: { createdAt: "desc" } });
       res.json(list);
     } catch (err: unknown) {

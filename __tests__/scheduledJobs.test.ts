@@ -111,6 +111,27 @@ describe('processScheduleJob AI caption fan-out', () => {
     expect(generateAICaption).toHaveBeenCalledTimes(2)
   })
 
+  it('a transient getPersonaPrompt failure for one group does not abort the fan-out for the others', async () => {
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue(
+      baseSchedule({ groupId: null, announceEvents: false, captionMode: 'auto', type: 'image', mediaUrl: 'x' }) as any
+    )
+    vi.mocked(getScheduledGreetingsEnabledGroupIds).mockResolvedValue(['a@g.us', 'b@g.us'])
+    vi.mocked(getPersonaPrompt).mockImplementation(async (groupId?: string | null) => {
+      if (groupId === 'a@g.us') throw new Error('transient DB error')
+      return 'persona B'
+    })
+    await expect(processScheduleJob('s1')).resolves.toBeUndefined()
+    // The failing group still gets a payload — just without an AI caption.
+    expect(enqueueSendMessage).toHaveBeenCalledTimes(2)
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: 'a@g.us', caption: undefined })
+    )
+    expect(enqueueSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: 'b@g.us', caption: 'caption' })
+    )
+    expect(generateAICaption).toHaveBeenCalledTimes(1)
+  })
+
   it('a schedule-level personaPrompt override puts every group in the same bucket without calling getPersonaPrompt', async () => {
     vi.mocked(prisma.schedule.findUnique).mockResolvedValue(
       baseSchedule({ groupId: null, announceEvents: false, captionMode: 'auto', type: 'image', mediaUrl: 'x', personaPrompt: 'override' }) as any

@@ -14,6 +14,7 @@ const FEATURE_FIELDS = [
   "scheduledGreetingsEnabled",
   "triggersEnabled",
   "contextSyncEnabled",
+  "eventsEnabled",
 ] as const;
 
 function parseFeatureFlags(body: Record<string, unknown>) {
@@ -66,6 +67,7 @@ export function registerGroupRoutes(app: Express) {
           scheduledGreetingsEnabled: false,
           triggersEnabled: false,
           contextSyncEnabled: false,
+          eventsEnabled: false,
         },
       });
       res.status(201).json(created);

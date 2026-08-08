@@ -260,12 +260,22 @@ export async function processScheduleJob(scheduleId: string): Promise<void> {
     } else {
       // No events to announce — the only thing that can vary by group is persona.
       // Bucket groups by resolved persona text so identical captions are generated once, not N times.
-      const personaByGroup = new Map<string, string>();
+      // A transient DB error resolving one group's persona must not abort the whole
+      // fan-out (which would also skip the includeRandomPool send below for every
+      // group) — degrade that single group to a null persona (no AI caption) instead.
+      const personaByGroup = new Map<string, string | null>();
       for (const groupId of groupIds) {
-        personaByGroup.set(groupId, schedule.personaPrompt || (await getPersonaPrompt(groupId)));
+        try {
+          personaByGroup.set(groupId, schedule.personaPrompt || (await getPersonaPrompt(groupId)));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log(`Falha ao resolver persona para ${groupId}: ${msg}`, "warn");
+          personaByGroup.set(groupId, null);
+        }
       }
       const captionByPersona = new Map<string, string | null>();
       for (const persona of new Set(personaByGroup.values())) {
+        if (persona === null) continue;
         try {
           captionByPersona.set(
             persona,
@@ -291,7 +301,8 @@ export async function processScheduleJob(scheduleId: string): Promise<void> {
         }
       }
       for (const groupId of groupIds) {
-        const caption = captionByPersona.get(personaByGroup.get(groupId)!) ?? null;
+        const persona = personaByGroup.get(groupId);
+        const caption = persona !== null && persona !== undefined ? (captionByPersona.get(persona) ?? null) : null;
         payloads.push({
           groupId,
           type: (schedule.type as "image" | "video") || "image",

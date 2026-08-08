@@ -1,5 +1,4 @@
 import { prisma } from "./db.js";
-import { Prisma } from "@prisma/client";
 import { GoogleGenAI } from "@google/genai";
 import { AI_PERSONA_DEFAULT, AI_PERSONA_GUARDS } from "./personaConstants.js";
 import { log } from "./logger.js";
@@ -14,12 +13,12 @@ export async function getPersonaPrompt(groupId?: string | null): Promise<string>
     const own = await prisma.personaConfig.findUnique({ where: { groupId } });
     if (own) return buildPersonaPrompt(own.prompt);
   }
-  // Prisma's generated WhereUniqueInput excludes `null` for nullable @unique
-  // columns (it can't itself guarantee uniqueness among nulls), even though
-  // the query engine correctly resolves `{ groupId: null }` as `IS NULL`.
-  const fallback = await prisma.personaConfig.findUnique({
-    where: { groupId: null } as unknown as Prisma.PersonaConfigWhereUniqueInput,
-  });
+  // findUnique rejects `null` as a value for a @unique field's where argument
+  // (it can't itself guarantee uniqueness among nulls) — Prisma throws a
+  // PrismaClientValidationError at the client level, not just a TS error, so
+  // it can't be worked around with a cast. findFirst accepts `null` on any
+  // field and resolves it correctly as `IS NULL`.
+  const fallback = await prisma.personaConfig.findFirst({ where: { groupId: null } });
   return buildPersonaPrompt(fallback?.prompt);
 }
 
@@ -63,8 +62,19 @@ async function validatePersonaPrompt(prompt: string): Promise<string> {
 
 export async function savePersonaPrompt(groupId: string | null, prompt: string): Promise<string> {
   await validatePersonaPrompt(prompt);
+  if (groupId === null) {
+    // upsert can't express "where groupId is null" for a @unique field (see
+    // getPersonaPrompt above), so find-then-update/create manually. Postgres
+    // unique indexes allow multiple NULLs, so this isn't airtight against a
+    // concurrent racing create — acceptable at this project's scale.
+    const existing = await prisma.personaConfig.findFirst({ where: { groupId: null } });
+    const doc = existing
+      ? await prisma.personaConfig.update({ where: { id: existing.id }, data: { prompt } })
+      : await prisma.personaConfig.create({ data: { groupId: null, prompt } });
+    return buildPersonaPrompt(doc.prompt);
+  }
   const doc = await prisma.personaConfig.upsert({
-    where: { groupId } as unknown as Prisma.PersonaConfigWhereUniqueInput,
+    where: { groupId },
     update: { prompt },
     create: { groupId, prompt },
   });

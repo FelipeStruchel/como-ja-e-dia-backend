@@ -1,8 +1,26 @@
-import { Express } from "express";
+import { Express, Request } from "express";
 import { PrismaClient } from "@prisma/client";
 import moment from "moment-timezone";
-import { requireAuth, requireGroupAdmin } from "../middleware/auth.js";
+import { requireGroupAdmin } from "../middleware/auth.js";
 import { getAdminGroupIds } from "../services/groupService.js";
+import { verifyToken, getUserById } from "../services/authService.js";
+
+// GET /events is public (the frontend's public /events page calls it while
+// logged out), but still group-aware for logged-in admins. Auth here must be
+// optional, not required — try to resolve a user from the bearer token if
+// present, but never reject the request when it's absent or invalid.
+async function resolveOptionalUser(req: Request) {
+  if (req.user) return req.user;
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) return undefined;
+  try {
+    const payload = verifyToken(token);
+    return (await getUserById(payload.sub as string)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function registerEventRoutes(
   app: Express,
@@ -18,15 +36,18 @@ export function registerEventRoutes(
     moment: typeof moment;
   }
 ) {
-  app.get("/events", requireAuth, async (req, res) => {
+  app.get("/events", async (req, res) => {
     if (!isDbConnected()) return res.status(503).json({ error: "DB unavailable" });
     try {
-      const userSlugs = req.user?.roles?.map((ur) => ur.role.slug) ?? [];
+      const user = await resolveOptionalUser(req);
+      const userSlugs = user?.roles?.map((ur) => ur.role.slug) ?? [];
       const isSuperAdmin = userSlugs.includes("super_admin");
       const now = new Date();
-      const scopeWhere = isSuperAdmin
-        ? {}
-        : { OR: [{ groupId: null }, { groupId: { in: await getAdminGroupIds(req.user!.id) } }] };
+      const scopeWhere = !user
+        ? { groupId: null }
+        : isSuperAdmin
+          ? {}
+          : { OR: [{ groupId: null }, { groupId: { in: await getAdminGroupIds(user.id) } }] };
       const events = await prisma.event.findMany({
         where: { ...scopeWhere, announced: false, claimedBy: null, date: { gt: now } },
         orderBy: { date: "asc" },
