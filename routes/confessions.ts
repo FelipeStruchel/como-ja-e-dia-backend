@@ -2,6 +2,7 @@ import { Express } from "express";
 import { getRequestIp } from "../utils/ip.js";
 import { enqueueSendMessage } from "../services/sendQueue.js";
 import { getConfessionsEnabledGroupIds } from "../services/groupService.js";
+import { prisma } from "../services/db.js";
 
 export function registerConfessionRoutes(
   app: Express,
@@ -15,7 +16,20 @@ export function registerConfessionRoutes(
     CONFESSION_COOLDOWN_MINUTES: number;
   }
 ) {
-  const lastConfessionByIp = new Map<string, number>();
+  const lastConfessionByIpAndGroup = new Map<string, number>();
+
+  app.get("/confessions/groups", async (_req, res) => {
+    try {
+      const groups = await prisma.group.findMany({
+        where: { confessionsEnabled: true },
+        select: { id: true, name: true },
+      });
+      res.json(groups);
+    } catch (error) {
+      console.error("Erro ao listar grupos de confissão:", error);
+      res.status(500).json({ error: "Erro ao listar grupos" });
+    }
+  });
 
   app.post("/confessions", async (req, res) => {
     try {
@@ -34,27 +48,32 @@ export function registerConfessionRoutes(
         });
       }
 
+      const groupId = typeof req.body?.groupId === "string" ? req.body.groupId.trim() : "";
+      if (!groupId) return res.status(400).json({ error: "Grupo inválido" });
+
+      const eligibleGroupIds = await getConfessionsEnabledGroupIds();
+      if (!eligibleGroupIds.includes(groupId)) {
+        return res.status(400).json({ error: "Grupo inválido" });
+      }
+
       const ip = getRequestIp(req);
+      const cooldownKey = `${ip}:${groupId}`;
       const now = Date.now();
       const cooldownMs = CONFESSION_COOLDOWN_MINUTES * 60 * 1000;
-      const lastUse = lastConfessionByIp.get(ip) || 0;
+      const lastUse = lastConfessionByIpAndGroup.get(cooldownKey) || 0;
 
       if (cooldownMs > 0 && now - lastUse < cooldownMs) {
         const waitSeconds = Math.ceil((cooldownMs - (now - lastUse)) / 1000);
         res.setHeader("Retry-After", waitSeconds);
         return res.status(429).json({
-          error: `Aguarde ${Math.ceil(waitSeconds / 60)} minuto(s) antes de enviar outra confissão.`,
+          error: `Aguarde ${Math.ceil(waitSeconds / 60)} minuto(s) antes de enviar outra confissão para este grupo.`,
           waitSeconds,
         });
       }
 
-      const targetGroupIds = await getConfessionsEnabledGroupIds();
       const finalMessage = `Confissão anônima: ${message}`.slice(0, MAX_MESSAGE_LENGTH);
-
-      for (const targetGroupId of targetGroupIds) {
-        await enqueueSendMessage({ groupId: targetGroupId, type: "text", content: finalMessage });
-      }
-      lastConfessionByIp.set(ip, now);
+      await enqueueSendMessage({ groupId, type: "text", content: finalMessage });
+      lastConfessionByIpAndGroup.set(cooldownKey, now);
 
       return res.json({ success: true, cooldownMinutes: CONFESSION_COOLDOWN_MINUTES });
     } catch (error) {
