@@ -1,5 +1,4 @@
 import { Express } from "express";
-import { Prisma } from "@prisma/client";
 import { requireGroupAdmin } from "../middleware/auth.js";
 import { savePersonaPrompt } from "../services/personaConfig.js";
 import { AI_PERSONA_DEFAULT } from "../services/personaConstants.js";
@@ -22,9 +21,10 @@ export function registerPersonaRoutes(app: Express) {
         // prompt text — never through getPersonaPrompt, which exists to
         // produce the guards-wrapped production text, not the editable raw
         // text the admin UI shows/edits.
-        const doc = await prisma.personaConfig.findUnique({
-          where: { groupId } as unknown as Prisma.PersonaConfigWhereUniqueInput,
-        });
+        // findUnique rejects `null` as a value for a @unique field's where
+        // argument (PrismaClientValidationError against the real client);
+        // findFirst accepts `null` on any field and resolves it as IS NULL.
+        const doc = await prisma.personaConfig.findFirst({ where: { groupId } });
         const prompt = doc?.prompt || AI_PERSONA_DEFAULT.trim();
         res.json({ prompt, default: AI_PERSONA_DEFAULT.trim() });
       } catch (err: unknown) {
