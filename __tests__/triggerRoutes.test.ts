@@ -132,3 +132,64 @@ describe('PUT /triggers/:id', () => {
     expect(call.data).not.toHaveProperty('groupId')
   })
 })
+
+describe('POST /triggers validation', () => {
+  it('rejects responseType echo combined with matchType exact', async () => {
+    const { app, routes } = makeApp()
+    registerTriggerRoutes(app)
+    const handler = routes['POST /triggers'].at(-1) as (req: any, res: any) => Promise<void>
+    const req = {
+      body: {
+        groupId: 'a@g.us',
+        phrases: ['bom dia'],
+        matchType: 'exact',
+        responseType: 'echo',
+        responseText: 'boa noite',
+      },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(prisma.trigger.create).not.toHaveBeenCalled()
+  })
+
+  it('accepts responseType echo combined with matchType contains', async () => {
+    const { app, routes } = makeApp()
+    registerTriggerRoutes(app)
+    const handler = routes['POST /triggers'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.trigger.create).mockResolvedValue({ id: 't1' } as any)
+    const req = {
+      body: {
+        groupId: 'a@g.us',
+        phrases: ['bom dia'],
+        matchType: 'contains',
+        responseType: 'echo',
+        responseText: 'boa noite',
+      },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    expect(res.status).toHaveBeenCalledWith(201)
+    const call = vi.mocked(prisma.trigger.create).mock.calls[0][0] as any
+    expect(call.data.responseType).toBe('echo')
+  })
+
+  it('rejects responseType echo with a blank responseText', async () => {
+    const { app, routes } = makeApp()
+    registerTriggerRoutes(app)
+    const handler = routes['POST /triggers'].at(-1) as (req: any, res: any) => Promise<void>
+    const req = {
+      body: {
+        groupId: 'a@g.us',
+        phrases: ['bom dia'],
+        matchType: 'contains',
+        responseType: 'echo',
+        responseText: '   ',
+      },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(prisma.trigger.create).not.toHaveBeenCalled()
+  })
+})

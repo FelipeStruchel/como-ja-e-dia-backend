@@ -17,7 +17,7 @@ function parseTriggerPayload(body: Record<string, unknown>) {
   safe.normalizeAccents =
     typeof body.normalizeAccents === "boolean" ? body.normalizeAccents : true;
   safe.wholeWord = !!body.wholeWord;
-  safe.responseType = ["text", "image", "video"].includes(body.responseType as string)
+  safe.responseType = ["text", "image", "video", "echo"].includes(body.responseType as string)
     ? body.responseType
     : "text";
   safe.responseText = ((body.responseText || "") as string).toString();
@@ -53,6 +53,12 @@ function validateTriggerPayload(payload: Record<string, unknown>) {
   }
   if (payload.responseType === "text" && !(payload.responseText as string).trim()) {
     throw new Error("Resposta de texto é obrigatória para responseType=text");
+  }
+  if (payload.responseType === "echo" && !(payload.responseText as string).trim()) {
+    throw new Error("Texto de substituição é obrigatório para responseType=echo");
+  }
+  if (payload.responseType === "echo" && payload.matchType !== "contains" && payload.matchType !== "regex") {
+    throw new Error("O modo eco só funciona com matchType 'contains' ou 'regex'");
   }
   if (
     (payload.responseType === "image" || payload.responseType === "video") &&
