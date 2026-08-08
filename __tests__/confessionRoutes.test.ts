@@ -64,6 +64,7 @@ describe('POST /confessions', () => {
     const { req, res } = makeReqRes({ message: 'oi', groupId: 'b@g.us' })
     await handler(req, res)
     expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.json).toHaveBeenCalledWith({ error: 'Grupo inválido' })
     expect(enqueueSendMessage).not.toHaveBeenCalled()
   })
 
@@ -107,5 +108,28 @@ describe('POST /confessions', () => {
     const { req, res } = makeReqRes({ message: 'oi' })
     await handler(req, res)
     expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.json).toHaveBeenCalledWith({ error: 'Grupo inválido' })
+    expect(getConfessionsEnabledGroupIds).not.toHaveBeenCalled()
+  })
+
+  it('re-fetches the eligible group set fresh on every request instead of caching it', async () => {
+    const { app, routes } = makeApp()
+    registerConfessionRoutes(app, makeDeps())
+    const handler = routes['POST /confessions'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(getConfessionsEnabledGroupIds)
+      .mockResolvedValueOnce(['a@g.us'])
+      .mockResolvedValueOnce([])
+
+    const first = makeReqRes({ message: 'oi', groupId: 'a@g.us' })
+    await handler(first.req, first.res)
+    expect(first.res.status).not.toHaveBeenCalledWith(400)
+    expect(enqueueSendMessage).toHaveBeenCalledTimes(1)
+
+    const second = makeReqRes({ message: 'de novo', groupId: 'a@g.us' })
+    await handler(second.req, second.res)
+    expect(second.res.status).toHaveBeenCalledWith(400)
+    expect(second.res.json).toHaveBeenCalledWith({ error: 'Grupo inválido' })
+    expect(enqueueSendMessage).toHaveBeenCalledTimes(1)
+    expect(getConfessionsEnabledGroupIds).toHaveBeenCalledTimes(2)
   })
 })

@@ -72,8 +72,8 @@ export function registerConfessionRoutes(
       }
 
       const finalMessage = `Confissão anônima: ${message}`.slice(0, MAX_MESSAGE_LENGTH);
-      await enqueueSendMessage({ groupId, type: "text", content: finalMessage });
       lastConfessionByIpAndGroup.set(cooldownKey, now);
+      await enqueueSendMessage({ groupId, type: "text", content: finalMessage });
 
       return res.json({ success: true, cooldownMinutes: CONFESSION_COOLDOWN_MINUTES });
     } catch (error) {
