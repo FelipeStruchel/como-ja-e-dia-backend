@@ -12,6 +12,7 @@ import {
 } from "../services/authService.js";
 import { getAdminGroupIds } from "../services/groupService.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { prisma } from "../services/db.js";
 
 function serializeUser(u: NonNullable<Awaited<ReturnType<typeof getUserById>>>) {
   return {
@@ -76,7 +77,21 @@ export function registerAuthRoutes(app: Express) {
   app.get("/auth/users", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const users = await listUsers();
-      res.json(users.map(serializeUser));
+      const groupAdmins = await prisma.groupAdmin.findMany({
+        select: { userId: true, groupId: true },
+      });
+      const groupIdsByUser = new Map<string, string[]>();
+      for (const ga of groupAdmins) {
+        const list = groupIdsByUser.get(ga.userId);
+        if (list) list.push(ga.groupId);
+        else groupIdsByUser.set(ga.userId, [ga.groupId]);
+      }
+      res.json(
+        users.map((u) => ({
+          ...serializeUser(u),
+          adminGroupIds: groupIdsByUser.get(u.id) ?? [],
+        }))
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao listar usuários";
       res.status(500).json({ error: msg });

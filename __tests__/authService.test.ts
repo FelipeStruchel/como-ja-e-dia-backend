@@ -142,11 +142,14 @@ describe('removeRole', () => {
 })
 
 describe('listRoles', () => {
-  it('returns all roles ordered by name', async () => {
+  it('returns all roles ordered by name, excluding the retired bom_dia_admin slug', async () => {
     const roles = [mockRole]
     vi.mocked(prisma.role.findMany).mockResolvedValue(roles as any)
     const result = await listRoles()
-    expect(prisma.role.findMany).toHaveBeenCalledWith({ orderBy: { name: 'asc' } })
+    expect(prisma.role.findMany).toHaveBeenCalledWith({
+      where: { slug: { not: 'bom_dia_admin' } },
+      orderBy: { name: 'asc' },
+    })
     expect(result).toEqual(roles)
   })
 })

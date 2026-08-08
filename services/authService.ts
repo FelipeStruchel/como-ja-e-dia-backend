@@ -100,5 +100,12 @@ export async function removeRole(userId: string, roleSlug: string) {
 }
 
 export async function listRoles() {
-  return prisma.role.findMany({ orderBy: { name: "asc" } });
+  // bom_dia_admin is retired — every route that checked it now checks
+  // per-group GroupAdmin membership instead, so assigning it does nothing.
+  // The Role row itself is kept (in case the slug is ever reused), just
+  // hidden from the assignable list to avoid confusing super_admin.
+  return prisma.role.findMany({
+    where: { slug: { not: "bom_dia_admin" } },
+    orderBy: { name: "asc" },
+  });
 }
