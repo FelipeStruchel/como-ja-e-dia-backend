@@ -99,10 +99,14 @@ export function registerScheduleRoutes(app: Express) {
     }),
     async (req, res) => {
       try {
-        // A schedule's group is fixed at creation time — PUT never reassigns it.
-        // Excluding groupId here prevents a scoped admin from moving a schedule into
-        // a group they don't administer (or accidentally globalizing it by omission).
-        const { groupId: _groupId, ...payload } = parseSchedule(req.body || {});
+        // A scoped admin can never reassign a schedule's group — that would let them
+        // move it into (or out of, by omission) a group they don't administer.
+        // super_admin has no such boundary, so it's the only role allowed to change it.
+        const userSlugs = req.user?.roles?.map((ur) => ur.role.slug) ?? [];
+        const isSuperAdmin = userSlugs.includes("super_admin");
+        const parsed = parseSchedule(req.body || {});
+        const { groupId: _groupId, ...withoutGroupId } = parsed;
+        const payload = isSuperAdmin ? parsed : withoutGroupId;
         if (!payload.cron) return res.status(400).json({ error: "cron é obrigatório" });
         const existing = await prisma.schedule.findUnique({ where: { id: req.params.id } });
         if (!existing) return res.status(404).json({ error: "Schedule não encontrado" });

@@ -130,6 +130,23 @@ describe('PUT /schedules/:id', () => {
     const call = vi.mocked(prisma.schedule.update).mock.calls[0][0] as any
     expect(call.data).not.toHaveProperty('groupId')
   })
+
+  it('does let a super_admin reassign groupId', async () => {
+    const { app, routes } = makeApp()
+    registerScheduleRoutes(app)
+    const handler = routes['PUT /schedules/:id'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue({ id: 'sch1', groupId: 'a@g.us', repeatJobKey: '' } as any)
+    vi.mocked(prisma.schedule.update).mockResolvedValue({ id: 'sch1' } as any)
+    const req = {
+      params: { id: 'sch1' },
+      body: { groupId: 'b@g.us', name: 'x', cron: '0 6 * * *' },
+      user: { id: 'u1', roles: [{ role: { slug: 'super_admin' } }] },
+    } as any
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+    await handler(req, res)
+    const call = vi.mocked(prisma.schedule.update).mock.calls[0][0] as any
+    expect(call.data.groupId).toBe('b@g.us')
+  })
 })
 
 describe('POST /schedules/resync', () => {
