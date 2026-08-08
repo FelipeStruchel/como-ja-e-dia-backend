@@ -33,14 +33,15 @@ describe('registerMediaRoutes auth wiring', () => {
     expect(requireRole).not.toHaveBeenCalledWith('bom_dia_admin')
   })
 
-  it('DELETE /media/:type/:filename still requires bom_dia_admin (unchanged)', () => {
+  it('DELETE /media/:type/:filename requires super_admin, not the retired bom_dia_admin role', () => {
     const { app, routes } = makeApp()
     registerMediaRoutes(app, {
       MEDIA_TYPES,
       saveMedia: vi.fn() as any,
       listAllMedia: vi.fn() as any,
     })
-    expect(requireWorkerOrRole).toHaveBeenCalledWith('bom_dia_admin')
+    expect(requireWorkerOrRole).toHaveBeenCalledWith('super_admin')
+    expect(requireWorkerOrRole).not.toHaveBeenCalledWith('bom_dia_admin')
     expect(routes['DELETE /media/:type/:filename']).toBeDefined()
   })
 })

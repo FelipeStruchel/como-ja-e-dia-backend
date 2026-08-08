@@ -134,7 +134,7 @@ export function registerMediaRoutes(
     }
   });
 
-  app.delete("/media/:type/:filename", requireWorkerOrRole("bom_dia_admin"), async (req, res) => {
+  app.delete("/media/:type/:filename", requireWorkerOrRole("super_admin"), async (req, res) => {
     try {
       const { type, filename } = req.params;
       const scope = (req.query.scope || "media").toString();
