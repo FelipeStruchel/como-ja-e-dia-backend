@@ -387,7 +387,7 @@ export function createCommandProcessor({
     let analysis: string | null = null;
     const start = Date.now();
     try {
-      analysis = await analysisFn(toAnalyze);
+      analysis = await analysisFn(msg.from ?? null, toAnalyze);
       if (isDbConnected && isDbConnected()) {
         try {
           await prismaClient.analysisLog.create({

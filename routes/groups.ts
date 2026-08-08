@@ -3,7 +3,7 @@ import { requireAuth, requireRole, requireWorkerOrRole } from "../middleware/aut
 import { prisma } from "../services/db.js";
 import { getRedis } from "../services/redis.js";
 import { enqueueGroupDiscoveryJob } from "../services/groupDiscoveryQueue.js";
-import { resetGroupCache } from "../services/groupService.js";
+import { resetGroupCache, getAdminGroupIds } from "../services/groupService.js";
 
 const DISCOVERY_CACHE_KEY = "groups:discovered";
 const DISCOVERY_CACHE_TTL_SEC = 86_400;
@@ -14,6 +14,7 @@ const FEATURE_FIELDS = [
   "scheduledGreetingsEnabled",
   "triggersEnabled",
   "contextSyncEnabled",
+  "eventsEnabled",
 ] as const;
 
 function parseFeatureFlags(body: Record<string, unknown>) {
@@ -25,6 +26,22 @@ function parseFeatureFlags(body: Record<string, unknown>) {
 }
 
 export function registerGroupRoutes(app: Express) {
+  app.get("/groups/mine", requireAuth, async (req, res) => {
+    try {
+      const userSlugs = req.user?.roles?.map((ur) => ur.role.slug) ?? [];
+      const isSuperAdmin = userSlugs.includes("super_admin");
+      const findManyParams: Record<string, unknown> = { orderBy: { createdAt: "asc" } };
+      if (!isSuperAdmin) {
+        findManyParams.where = { id: { in: await getAdminGroupIds(req.user!.id) } };
+      }
+      const groups = await prisma.group.findMany(findManyParams as any);
+      res.json(groups);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao listar seus grupos";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.get("/groups", requireAuth, requireRole("super_admin"), async (_req, res) => {
     try {
       const groups = await prisma.group.findMany({ orderBy: { createdAt: "asc" } });
@@ -50,6 +67,7 @@ export function registerGroupRoutes(app: Express) {
           scheduledGreetingsEnabled: false,
           triggersEnabled: false,
           contextSyncEnabled: false,
+          eventsEnabled: false,
         },
       });
       res.status(201).json(created);

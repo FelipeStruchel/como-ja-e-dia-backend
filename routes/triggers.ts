@@ -1,5 +1,6 @@
 import { Express } from "express";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireGroupAdmin } from "../middleware/auth.js";
+import { getAdminGroupIds } from "../services/groupService.js";
 import { prisma } from "../services/db.js";
 
 function parseTriggerPayload(body: Record<string, unknown>) {
@@ -71,9 +72,17 @@ function validateTriggerPayload(payload: Record<string, unknown>) {
 }
 
 export function registerTriggerRoutes(app: Express) {
-  app.get("/triggers", requireAuth, requireRole("bom_dia_admin"), async (_req, res) => {
+  app.get("/triggers", requireAuth, async (req, res) => {
     try {
-      const list = await prisma.trigger.findMany({ orderBy: { createdAt: "desc" } });
+      const userSlugs = req.user?.roles?.map((ur) => ur.role.slug) ?? [];
+      const isSuperAdmin = userSlugs.includes("super_admin");
+      // Unlike Event/Schedule, Trigger.groupId is a required (non-nullable) column and
+      // there is no "global" trigger concept — a trigger always belongs to exactly one
+      // real group. So the scoped-admin filter has no OR/null branch at all.
+      const where = isSuperAdmin
+        ? undefined
+        : { groupId: { in: await getAdminGroupIds(req.user!.id) } };
+      const list = await prisma.trigger.findMany({ where, orderBy: { createdAt: "desc" } });
       res.json(list);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao listar triggers";
@@ -81,7 +90,7 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.post("/triggers", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
+  app.post("/triggers", requireGroupAdmin((req) => ((req.body?.groupId as string) || "").trim() || null), async (req, res) => {
     try {
       const payload = parseTriggerPayload(req.body || {});
       validateTriggerPayload(payload);
@@ -93,15 +102,22 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.put("/triggers/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
+  app.put("/triggers/:id", requireGroupAdmin(async (req) => {
+    const existing = await prisma.trigger.findUnique({ where: { id: req.params.id } });
+    return existing?.groupId ?? null;
+  }), async (req, res) => {
     try {
       const payload = parseTriggerPayload(req.body || {});
       validateTriggerPayload(payload);
+      // A trigger's group is fixed at creation time — PUT never reassigns it.
+      // Excluding groupId here prevents a scoped admin from moving a trigger into
+      // a group they don't administer (or accidentally globalizing it by omission).
+      const { groupId: _groupId, ...updateData } = payload;
       let updated;
       try {
         updated = await prisma.trigger.update({
           where: { id: req.params.id },
-          data: payload as Parameters<typeof prisma.trigger.update>[0]["data"],
+          data: updateData as Parameters<typeof prisma.trigger.update>[0]["data"],
         });
       } catch (err: unknown) {
         if ((err as { code?: string }).code === "P2025")
@@ -115,7 +131,10 @@ export function registerTriggerRoutes(app: Express) {
     }
   });
 
-  app.delete("/triggers/:id", requireAuth, requireRole("bom_dia_admin"), async (req, res) => {
+  app.delete("/triggers/:id", requireGroupAdmin(async (req) => {
+    const existing = await prisma.trigger.findUnique({ where: { id: req.params.id } });
+    return existing?.groupId ?? null;
+  }), async (req, res) => {
     try {
       try {
         await prisma.trigger.delete({ where: { id: req.params.id } });

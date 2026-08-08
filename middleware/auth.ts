@@ -81,7 +81,7 @@ export function requireGroupAdmin(
         }
         const groupId = await getGroupId(req);
         if (!groupId) {
-          res.status(400).json({ error: "groupId é obrigatório" });
+          res.status(403).json({ error: "Sem permissão para operar fora de um grupo específico" });
           return;
         }
         const isAdmin = await isGroupAdminOf(user.id, groupId);

@@ -39,6 +39,7 @@ model Event {
   id          String    @id @default(cuid())
   name        String
   date        DateTime
+  groupId     String?
   createdAt   DateTime  @default(now())
   announced   Boolean   @default(false)
   announcedAt DateTime?
@@ -80,6 +81,7 @@ model Trigger {
 
 model Schedule {
   id                String    @id @default(cuid())
+  groupId           String?
   name              String
   kind              String    @default("greeting")
   type              String
@@ -115,6 +117,7 @@ model GroupContext {
 
 model PersonaConfig {
   id        Int      @id @default(autoincrement())
+  groupId   String?  @unique
   prompt    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -276,6 +279,7 @@ model Group {
   scheduledGreetingsEnabled Boolean      @default(false)
   triggersEnabled           Boolean      @default(false)
   contextSyncEnabled        Boolean      @default(false)
+  eventsEnabled             Boolean      @default(false)
   createdAt                 DateTime     @default(now())
   updatedAt                 DateTime     @updatedAt
   admins                    GroupAdmin[]
