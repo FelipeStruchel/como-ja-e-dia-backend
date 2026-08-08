@@ -24,7 +24,15 @@ export function registerPersonaRoutes(app: Express) {
         // findUnique rejects `null` as a value for a @unique field's where
         // argument (PrismaClientValidationError against the real client);
         // findFirst accepts `null` on any field and resolves it as IS NULL.
-        const doc = await prisma.personaConfig.findFirst({ where: { groupId } });
+        let doc = await prisma.personaConfig.findFirst({ where: { groupId } });
+        // A group with no override of its own inherits the groupId: null
+        // global-fallback row (same cascade as getPersonaPrompt) before
+        // falling back to the hardcoded default. When groupId is already
+        // null (editing the global row directly), there's nothing above it
+        // to fall through to, so the single lookup above is already final.
+        if (!doc && groupId) {
+          doc = await prisma.personaConfig.findFirst({ where: { groupId: null } });
+        }
         const prompt = doc?.prompt || AI_PERSONA_DEFAULT.trim();
         res.json({ prompt, default: AI_PERSONA_DEFAULT.trim() });
       } catch (err: unknown) {

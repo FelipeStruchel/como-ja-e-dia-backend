@@ -117,6 +117,23 @@ describe('GET /persona', () => {
     expect(call.prompt).toBe(call.default)
     expect(getPersonaPrompt).not.toHaveBeenCalled()
   })
+
+  it('a group with no row of its own falls through to the raw groupId: null global row, not the hardcoded default', async () => {
+    const { app, routes } = makeApp()
+    registerPersonaRoutes(app)
+    const handler = routes['GET /persona'].at(-1) as (req: any, res: any) => Promise<void>
+    vi.mocked(prisma.personaConfig.findFirst)
+      .mockResolvedValueOnce(null) // group-specific lookup: no override
+      .mockResolvedValueOnce({ prompt: 'raw human-authored global tone' } as any) // groupId: null fallback
+    const { req, res } = makeReqRes({ groupId: 'a@g.us' })
+    await handler(req, res)
+    expect(prisma.personaConfig.findFirst).toHaveBeenNthCalledWith(1, { where: { groupId: 'a@g.us' } })
+    expect(prisma.personaConfig.findFirst).toHaveBeenNthCalledWith(2, { where: { groupId: null } })
+    expect(res.json).toHaveBeenCalledWith({ prompt: 'raw human-authored global tone', default: expect.any(String) })
+    const call = vi.mocked(res.json).mock.calls[0][0] as any
+    expect(call.prompt).not.toBe(call.default)
+    expect(getPersonaPrompt).not.toHaveBeenCalled()
+  })
 })
 
 describe('PUT /persona', () => {
