@@ -21,6 +21,7 @@ import {
   isTriggersEnabledForGroup,
   getPokemonEnabledGroupIds,
   isContextSyncEnabled,
+  isEventsEnabledForGroup,
   resetGroupCache,
   ensureGroupSeeded,
   isGroupAdminOf,
@@ -72,6 +73,11 @@ describe('groupService', () => {
   it('isContextSyncEnabled reflects the contextSyncEnabled flag', async () => {
     vi.mocked(prisma.group.findUnique).mockResolvedValue({ id: 'g1@g.us', contextSyncEnabled: true } as any)
     expect(await isContextSyncEnabled('g1@g.us')).toBe(true)
+  })
+
+  it('isEventsEnabledForGroup reflects the eventsEnabled flag', async () => {
+    vi.mocked(prisma.group.findUnique).mockResolvedValue({ id: 'g1@g.us', eventsEnabled: false } as any)
+    expect(await isEventsEnabledForGroup('g1@g.us')).toBe(false)
   })
 
   it('ensureGroupSeeded upserts with the given id and name, all toggles left untouched on conflict', async () => {
