@@ -6,6 +6,7 @@ type GroupRow = {
   triggersEnabled: boolean
   contextSyncEnabled: boolean
   scheduledGreetingsEnabled: boolean
+  eventsEnabled: boolean
 } | null
 
 const CACHE_TTL_MS = 60_000
@@ -48,6 +49,11 @@ export async function isContextSyncEnabled(groupId: string): Promise<boolean> {
 export async function isScheduledGreetingsEnabledForGroup(groupId: string): Promise<boolean> {
   const row = await fetchGroup(groupId)
   return !!row?.scheduledGreetingsEnabled
+}
+
+export async function isEventsEnabledForGroup(groupId: string): Promise<boolean> {
+  const row = await fetchGroup(groupId)
+  return !!row?.eventsEnabled
 }
 
 export async function isGroupAdminOf(userId: string, groupId: string): Promise<boolean> {

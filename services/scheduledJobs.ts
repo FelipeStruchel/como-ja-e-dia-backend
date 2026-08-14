@@ -9,6 +9,7 @@ import { getRandomMedia } from "../mediaManager.js";
 import {
   getScheduledGreetingsEnabledGroupIds,
   isScheduledGreetingsEnabledForGroup,
+  isEventsEnabledForGroup,
 } from "./groupService.js";
 import { getPersonaPrompt } from "./personaConfig.js";
 
@@ -229,14 +230,20 @@ export async function processScheduleJob(scheduleId: string): Promise<void> {
     } else if (schedule.announceEvents) {
       // Events (and therefore the caption) can differ per group — one call per group, no bucketing.
       for (const groupId of groupIds) {
-        const eventsContext = await buildEventsContext(schedule.timezone || "America/Sao_Paulo", groupId);
+        // eventsEnabled is a per-group kill switch independent of scheduledGreetingsEnabled —
+        // a group that opted out of the events feature must not have global (or its own)
+        // events announced in its greeting, even though it still receives the greeting itself.
+        const eventsEnabled = await isEventsEnabledForGroup(groupId);
+        const eventsContext = eventsEnabled
+          ? await buildEventsContext(schedule.timezone || "America/Sao_Paulo", groupId)
+          : { names: [], eventsTodayDetails: null, nearestDateStr: null, countdown: null, hasEvents: false };
         let caption: string | null = null;
         try {
           caption = await generateAICaption({
             purpose: "greeting",
             names: eventsContext.names,
             timeStr: eventsContext.eventsTodayDetails,
-            announceEvents: true,
+            announceEvents: eventsEnabled,
             noEvents: !eventsContext.hasEvents,
             dayOfWeek: now.format("dddd"),
             todayDateStr: now.format("DD/MM/YYYY"),

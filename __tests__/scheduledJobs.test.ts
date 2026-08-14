@@ -17,6 +17,9 @@ vi.mock('../services/groupService.js', () => ({
   // Default to enabled so existing pinned-groupId tests don't have to opt in;
   // the "kill switch" test below overrides this once via mockResolvedValueOnce.
   isScheduledGreetingsEnabledForGroup: vi.fn().mockResolvedValue(true),
+  // Default to enabled so existing announceEvents tests don't have to opt in;
+  // the eventsEnabled-off test below overrides this once via mockResolvedValueOnce.
+  isEventsEnabledForGroup: vi.fn().mockResolvedValue(true),
 }))
 vi.mock('../services/personaConfig.js', () => ({ getPersonaPrompt: vi.fn() }))
 // mockImplementation must use a plain function (not an arrow function) here because
@@ -35,6 +38,7 @@ import { getPersonaPrompt } from '../services/personaConfig.js'
 import {
   getScheduledGreetingsEnabledGroupIds,
   isScheduledGreetingsEnabledForGroup,
+  isEventsEnabledForGroup,
 } from '../services/groupService.js'
 
 // processScheduleJob is not exported today — export it from services/scheduledJobs.ts
@@ -86,6 +90,27 @@ describe('processScheduleJob AI caption fan-out', () => {
     vi.mocked(prisma.event.findMany).mockResolvedValue([])
     await processScheduleJob('s1')
     expect(generateAICaption).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not announce events to a group with eventsEnabled off, even though it still receives the greeting', async () => {
+    vi.mocked(prisma.schedule.findUnique).mockResolvedValue(
+      baseSchedule({ groupId: null, announceEvents: true, captionMode: 'auto', type: 'image', mediaUrl: 'x' }) as any
+    )
+    vi.mocked(getScheduledGreetingsEnabledGroupIds).mockResolvedValue(['a@g.us', 'b@g.us'])
+    vi.mocked(isEventsEnabledForGroup).mockImplementation(async (groupId?: string | null) => groupId !== 'a@g.us')
+    vi.mocked(prisma.event.findMany).mockResolvedValue([{ id: 'e1', name: 'Global Event', groupId: null }] as any)
+
+    await processScheduleJob('s1')
+
+    // Group with events disabled still gets the greeting, but must not receive
+    // the global event announcement in its caption context.
+    expect(generateAICaption).toHaveBeenCalledWith(
+      expect.objectContaining({ announceEvents: false, noEvents: true, names: [] })
+    )
+    expect(generateAICaption).toHaveBeenCalledWith(
+      expect.objectContaining({ announceEvents: true, noEvents: false })
+    )
+    expect(enqueueSendMessage).toHaveBeenCalledTimes(2)
   })
 
   it('calls generateAICaption once and reuses it for groups sharing the same resolved persona when announceEvents is false', async () => {
